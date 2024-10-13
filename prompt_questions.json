@@ -1,140 +1,104 @@
 {
-  "esgResponse": [
+  "documentResponse": [
     {
       "entityName": "string",
-      "benchmarkDetails": [
+      "documentDetails": [
         {
-          "question": "ESG Risk Rating for MSCI",
-          "esgType": "ESGScore",
-          "esgIndicators": "MSCISustainalytics",
-          "primaryDetails": "",
-          "secondaryDetails": "",
+          "question": "who is the Vendor? Vendor Name will be followed by 'vendor' in the contract.Sentence will have 'by' and 'between company name and 'vendor name.Answer it in short form  ",
           "citationDetails": "string",
           "pageNumber": 0
         },
         {
-          "question": "what is net zero target",
-          "esgType": "Environment",
-          "esgIndicators": "NetZeroTarget",
-          "primaryDetails": "",
-          "secondaryDetails": "",
+          "question": "What is the contract ID? It usually starts with two characters or contains numeric values. It usually n first row of the first page of every contract.Answer it in short form",
           "citationDetails": "string",
           "pageNumber": 0
         },
         {
-          "question": "what is the interim emission reduction target",
-          "esgType": "Environment",
-          "esgIndicators": "InterimEmissionsReductionTarget",
-          "primaryDetails": "",
-          "secondaryDetails": "",
-          "citationDetails": "string",
-          "pageNumber": 0
-        },
-        {
-          "question": "what is the Renewable Electricity Target",
-          "esgType": "Environment",
-          "esgIndicators": "RenewableElectricityTarget",
-          "primaryDetails": "",
-          "secondaryDetails": "",
-          "citationDetails": "string",
-          "pageNumber": 0
-        },
-        {
-          "question": "what is the Circularity Stratergy & targets",
-          "esgType": "Environment",
-          "esgIndicators": "CircularityStratergy",
-          "primaryDetails": "",
-          "secondaryDetails": "",
-          "citationDetails": "string",
-          "pageNumber": 0
-        },
-        {
-          "question": "what is the Diversity, Equity and Inclusion target",
-          "esgType": "Social",
-          "esgIndicators": "DE&ITarget",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
-          "citationDetails": "string",
-          "pageNumber": 0
-        },
-        {
-          "question": "what is the employee health and Safety audit target",
-          "esgType": "Goverance",
-          "esgIndicators": "HealthAndSafetyTarget",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+          "question": "what is the term start date? It could be commencement Date,Start Date,Services Start Date,Term start date,contract start date.It should be in Date Format(Could be in any of the date formats like mm/dd/yyyy or december 1st,2022 or 1st December 2022.Answer it in short form ",
           "citationDetails": "string",
           "pageNumber": 0
         },
 		{
-          "question": "what is supply audit target",
-          "esgType": "Goverance",
-          "esgIndicators": "SuppluAuditTarget",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+          "question": "What is the term end date ? You can consider keywords like end date, services end date, term end date, contract end date to identify the term end date. Once the term end date is identified, add 1 year to it and name it as next renewal year,Give both dates in list format the first index value wil be term end date and next value will be Next renewal year in date format.Answer it in short form",
           "citationDetails": "string",
           "pageNumber": 0
         },
-        {
-          "question": "what is the SBTi rating",
-          "esgType": "Reporting",
-          "esgIndicators": "SBTi",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+		{
+          "question": "Can you give me the Scope of the work after reading the document. Answer it in short paragraph.",
           "citationDetails": "string",
           "pageNumber": 0
         },
-        {
-          "question": "what is the CDP rating",
-          "esgType": "Reporting",
-          "esgIndicators": "CDP",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+		{
+          "question": " After reading the document can you identify what kind of contract it is and if you found multiple contracts in a single doucment give the result in list format",
           "citationDetails": "string",
           "pageNumber": 0
         },
-        {
-          "question": "what is the GRI rating",
-          "esgType": "Reporting",
-          "esgIndicators": "GRI",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+		{
+          "question": " After reading the document can you identify what kind of expense it is and if you found multiple contracts in a single doucment give the result in list format. Once you populate the answer if answer consists hosted technology soloutions then change it to 'Software as service', if answer consists Profesinal serrvies or outourcing services or Implementation Services or Statement of Work or Consulting Services - Fixed Bid or OEM,If contract does not contain Hosted Technology Solutions then it is a Software contract,If the contract contains combination of the above then it is a bundled contract, Give answer in a list format  ",
           "citationDetails": "string",
           "pageNumber": 0
         },
-        {
-          "question": "what is the SASB rating",
-          "esgType": "Reporting",
-          "esgIndicators": "SASB",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+		{
+          "question": " Can you extract the Number of License in Contract, the answer can be identified from the keywords like Quantity, Number of Users, Number of Licenses, Give answer",
           "citationDetails": "string",
           "pageNumber": 0
         },
-        {
-          "question": "what is the TCFD rating",
-          "esgType": "Reporting",
-          "esgIndicators": "TCFD",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+		{
+          "question": " Can you extract the Cost per License, the answer can be identified from the keywords like Cost per Unit or Cost per License or License Fees, Give answer",
           "citationDetails": "string",
           "pageNumber": 0
         },
-        {
-          "question": "is the entity focussing on ESG assurance",
-          "esgType": "Reporting",
-          "esgIndicators": "Assurance",
-          "primaryDetails": "",
-          "secondaryDetails": "string",
+		{
+          "question": " Can you extract the Total License Cost, the answer can be identified from the keywords like License Cost or Software License Cost, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "Can you extract the Renewal cost, If you are able to extract the renewal cost conider that else it will be same as Current Contract Cost + CPI, if any mentioned in the contract, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "After reading the document Can you compute the Maintenance Cost by number of hours %Professional Services, the answer can be identified from the keywords like Professional Services or Outsourcing Services or Implementation Services or Consulting Services, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "After reading the document Can you compute the Maintenance Cost by number of Hours e.g. % of Licence fees, the answer can be identified from the keywords like Maintenance Fees, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "After reading the document can you extract any other charges apart from Maintenance Cost, like One Time Charges, Implementation, Miscellaneous, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the most recent year's contract value in the document, It Will be present after Payment Schedule or Fee Schedule or project Fees or Service Fees or Traffic Fees Will generally have numeric format and currency symbol before it. If you idetify multiple contract years in the same document return the years in python dictonary format with key as date and value will be the extracted contract value, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the CPI % like 2%, 3% .. etc It will be in % also can be identify with the keywords like Increase the fees,but not to exceed, After renewal term, Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Contractual Obligation from the document, you can extract it from the keywords likeTrack the word/text   Obligation,Contract Obligation, Termination. Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Credit Note mentioned in the document. Give answer",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Tax Impact mentioned in the document. Give answer",
           "citationDetails": "string",
           "pageNumber": 0
         }
-      ],
-      "metrics": {
-        "timeTaken": 0,
-        "leveragedModel": "string",
-		"f1Score": 0
-      }
+		]
     }
   ]
 }
