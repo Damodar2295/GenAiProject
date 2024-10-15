@@ -1,0 +1,104 @@
+{
+  "documentResponse": [
+    {
+      "entityName": "string",
+      "documentDetails": [
+        {
+          "question": "who is the Vendor? Vendor Name will be followed by 'vendor' in the contract.Sentence will have 'by' and 'between company name and 'vendor name.Answer Vendor name  ",
+            "FieldName":"Vendor Name",
+          "citationDetails": "string",
+          "pageNumber": 0
+        },
+        {
+          "question": "What is the contract ID? It usually starts with two characters or contains numeric values. It usually n first row of the first page of every contract.Give only Contract ID",
+          "citationDetails": "string",
+            "FieldName":"Contract ID",
+          "pageNumber": 0
+        },{
+          "question": "what is the term start date? It could be commencement Date,Start Date,Services Start Date,Term start date,contract start date.It should be in Date Format(Could be in any of the date formats like mm/dd/yyyy or december 1st,2022 or 1st December 2022. Show result date format should be in DD/MM/YYYY",
+          "citationDetails": "string",
+		  "FieldName":"Start Date",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the term end date ? You can consider keywords like end date, services end date, term end date, contract end date to identify the term end date.Answer it in short form",
+          "citationDetails": "string",
+            "FieldName":"End Date",
+          "pageNumber": 0
+        },
+		{
+          "question": "It can be specifically called out as Scope in the contract or should be derived from the application of the products/services or description of fees.Answer it in short paragraph.",
+          "citationDetails": "string",
+            "FieldName":"Scope of Work",
+          "pageNumber": 0
+        },
+		{
+          "question": "If it contains Hosted Technology Solutions,Software-as-a Service  then 'Software as a Service'. If it contains 'Professional Services or Outsourcing Services or Implementation Services or Statement of Work or Consulting Services or Fixed Fee then it is 'Fixed Bid or OEM. If contract does not contain Hosted Technology Solutions or Software-as-a-Service but it has License or Maintenance Cost then it is a Software contract",
+          "citationDetails": "string",
+            "FieldName":"Nature of Expense",
+          "pageNumber": 0
+        },
+		{
+          "question": " Can you extract the Number of License in Contract, the answer can be identified from the keywords like Quantity, Number of Users, Number of Licenses, if multiple contracts are present for different years it should be given in list for different years. After extraction remove the text and just provide only the number withour users",
+          "citationDetails": "string",
+            "FieldName":"Number of License",
+          "pageNumber": 0
+        },
+		{
+          "question": "Can you extract the type of contract from the document, once you extracted the type of contract follow these mapping for creating the final type of contract, these are rule for that  if it is only one service like 'Software as a Service' then final type of contract is Single Product, If more than one Expenses like 'Software as a Service' and 'Fixed Bid or OEM then type of contract is Bundled. if you get different Users or Licenses in the Pricing table then type of contract is Multiple Products. If both Bundled and Multiple Product then final type of contract is Bundled",
+          "citationDetails": "string",
+            "FieldName":"Type of Contract",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Total License Cost for Year 1. This should be Annual fee,It may contain License Cost or Software License Cost or SaaS Fees or Customer Care Support Team. this should be after discount. After extraction remove the text and just provide only the cost number",
+          "citationDetails": "string",
+            "FieldName":"Total License Cost Year1",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Total License Cost for Year 2,It may contain License Cost or Software License Cost or SaaS Fees/Customer Care Support Team or Year 1 License Cost + CPI.After extraction remove the text and just provide only the cost number",
+          "citationDetails": "string",
+            "FieldName":"Total License Cost Year2",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Total License Cost for Year 3,It may contain License Cost or Software License Cost or SaaS Fees/Customer Care Support Team or Year 2 License Cost + CPI.After extraction remove the text and just provide only the cost number",
+          "citationDetails": "string",
+            "FieldName":"Total License Cost Year3",
+          "pageNumber": 0
+        },
+		{
+          "question": "Can you extract professional services cost. You can consider key words like 'fixed fee', 'Professional Services'  or 'Outsourcing Services'  or 'Implementation Services'  or 'Consulting Services' for year 1.Recheck the extracted professional services, if you haven't find any of the mentioned key words simply say Zero.Just give number",
+          "citationDetails": "string",
+            "FieldName":"Maintenance or service charges associated with contract (Professional Services) - Year 1",
+          "pageNumber": 0
+        },
+		{
+          "question": "Can you extract professional services cost. You can consider key words like 'fixed fee', 'Professional Services'  or 'Outsourcing Services'  or 'Implementation Services'  or 'Consulting Services' for year 1.Recheck the extracted professional services, if you haven't find any of the mentioned key words simply say Zero.Just give number",
+          "citationDetails": "string",
+            "FieldName":"Maintenance or service charges associated with contract (Professional Services) - Year 2",
+          "pageNumber": 0
+        },
+		{
+          "question": "Can you extract professional services cost. You can consider key words like 'fixed fee', 'Professional Services'  or 'Outsourcing Services'  or 'Implementation Services'  or 'Consulting Services' for year 3.Recheck the extracted professional services, if you haven't find any of the mentioned key words simply say Zero.Just give number",
+          "citationDetails": "string",
+            "FieldName":"Maintenance or service charges associated with contract (Professional Services) - Year 3",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the CPI % like 2%, 3% .. etc It will be in % also can be identify with the keywords like Increase the fees,but not to exceed, After renewal term, After extraction just give % number.",
+          "citationDetails": "string",
+            "FieldName":"CPI Impact %",
+          "pageNumber": 0
+        },
+		{
+          "question": "What is the Credit Note mentioned in the document. Give answer",
+          "citationDetails": "string",
+         "FieldName":"Credit Note",
+          "pageNumber": 0
+        }
+  ]
+    }
+      ]
+}
