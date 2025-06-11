@@ -37,7 +37,7 @@ export class ExcelProcessor {
     private readonly MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     private readonly VENDOR_QUESTIONNAIRE_NAME = 'Vendor_Questionnaire.xls';
 
-    private validateFile(file: File): void {
+    private validateFile(file: File, supportedTypes?: string[]): void {
         if (!file) {
             throw new Error('File is required');
         }
@@ -46,9 +46,10 @@ export class ExcelProcessor {
             throw new Error(`File size exceeds maximum limit of ${this.MAX_FILE_SIZE / 1024 / 1024}MB`);
         }
 
+        const typesToCheck = supportedTypes || this.SUPPORTED_FILE_TYPES;
         const extension = this.getFileExtension(file.name);
-        if (!this.SUPPORTED_FILE_TYPES.includes(extension)) {
-            throw new Error(`Unsupported file type: ${extension}. Supported types: ${this.SUPPORTED_FILE_TYPES.join(', ')}`);
+        if (!typesToCheck.includes(extension)) {
+            throw new Error(`Unsupported file type: ${extension}. Supported types: ${typesToCheck.join(', ')}`);
         }
     }
 
@@ -107,8 +108,8 @@ export class ExcelProcessor {
     async processFiles(domainFile: File, questionnaireFile: File): Promise<Record<string, string[]>> {
         try {
             // Validate files
-            this.validateFile(domainFile);
-            this.validateFile(questionnaireFile);
+            this.validateFile(domainFile, ['XLS', 'XLSX']);
+            this.validateFile(questionnaireFile, ['XLS', 'XLSX']);
 
             // Read files
             const [domains, questions] = await Promise.all([
@@ -189,16 +190,20 @@ export class ExcelProcessor {
 
     private async findVendorQuestionnaire(zip: JSZip): Promise<XLSX.WorkBook | null> {
         // Find all .xls files in the zip
-        const xlsFiles = Object.keys(zip.files)
-            .filter(path => path.toLowerCase().endsWith('.xls') && !path.endsWith('/'));
+        const excelFiles = Object.keys(zip.files)
+            .filter(path =>
+                (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) &&
+                !path.startsWith('__MACOSX/') &&
+                !zip.files[path].dir
+            );
 
-        if (xlsFiles.length === 0) {
+        if (excelFiles.length === 0) {
             console.warn('No Excel files found in zip file');
             return null;
         }
 
         // Use the first .xls file found
-        const questionnaireFile = zip.file(xlsFiles[0]);
+        const questionnaireFile = zip.file(excelFiles[0]);
         if (!questionnaireFile) {
             console.warn('Failed to read Excel file from zip');
             return null;
@@ -215,9 +220,13 @@ export class ExcelProcessor {
 
     private async findEvidenceFolders(zip: JSZip): Promise<string[]> {
         const folders = Object.keys(zip.files)
-            .filter(path => path.endsWith('/'))
-            .map(path => path.replace(/\/$/, ''))
-            .filter(folder => /^CID\d+$/i.test(folder));
+            .filter(path =>
+                zip.files[path].dir &&
+                !path.startsWith('__MACOSX/') &&
+                // Check if it's a top-level directory (e.g., "folder/", not "folder/subfolder/")
+                path.slice(0, -1).indexOf('/') === -1
+            )
+            .map(path => path.slice(0, -1)); // remove trailing '/'
 
         return folders;
     }
@@ -247,7 +256,7 @@ export class ExcelProcessor {
     async processZipFile(zipFile: File): Promise<VendorEvidence[]> {
         try {
             // Validate zip file
-            this.validateFile(zipFile);
+            this.validateFile(zipFile, ['ZIP']);
 
             // Extract zip file
             const zip = await this.extractZipFile(zipFile);
@@ -271,7 +280,7 @@ export class ExcelProcessor {
             // Process each CID folder
             const vendorEvidence: VendorEvidence[] = await Promise.all(
                 cidFolders.map(async (cidFolder) => {
-                    const cid = cidFolder.replace(/^CID/i, '');
+                    const cid = cidFolder;
                     const evidenceFiles = await this.getEvidenceFiles(zip, cidFolder);
 
                     return {
