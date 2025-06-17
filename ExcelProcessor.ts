@@ -6,7 +6,14 @@ export interface DomainData {
     Domain_Code: string;
     Domain_Name: string;
     Sub_Domain_Name: string;
+    Question: string;
+    Question_Description: string;
+    Assessor_Guidelines?: string;
 }
+
+// Use ES6 import syntax for JSON import
+import * as domainListModule from '../../public/domain_list.json';
+const domain_list = domainListModule as unknown as DomainData[];
 
 export interface QuestionData {
     'Questionnaire Name': string;
@@ -16,8 +23,14 @@ export interface QuestionData {
     'Data Type': string;
     'Choices': string;
     'Vendor Answers': string;
-    'Inernal Comments': string;
+    'Internal Comments': string;
     'Attachement Reference': string;
+}
+
+export interface QuestionPrompt {
+    id: string;
+    question: string;
+    prompt: string;
 }
 
 export interface DesignElement {
@@ -30,6 +43,42 @@ export interface VendorEvidence {
     cid: string;
     designElements: DesignElement[];
     evidenceFiles: string[];
+}
+
+export interface ZipFileInfo {
+    fileName: string;
+    path: string;
+    type: 'folder' | 'pdf' | 'excel' | 'other';
+    extension?: string;
+}
+
+export interface ZipContents {
+    summary: {
+        totalItems: number;
+        folders: number;
+        totalFiles: number;
+        pdfFiles: number;
+        excelFiles: number;
+        otherFiles: number;
+    };
+    folders: Array<{
+        name: string;
+        path: string;
+        contents: ZipFileInfo[];
+    }>;
+    pdfFiles: ZipFileInfo[];
+    excelFiles: ZipFileInfo[];
+    otherFiles: ZipFileInfo[];
+}
+
+export interface ZipProcessResult {
+    prompts: QuestionPrompt[];
+    zipContents: ZipContents;
+    vendorQuestionnaire?: {
+        fileName: string;
+        sheetNames: string[];
+        questionsCount: number;
+    };
 }
 
 export class ExcelProcessor {
@@ -53,128 +102,317 @@ export class ExcelProcessor {
         }
     }
 
+    /**
+     * Loads domain list from domain_list.json file
+     * @returns Promise resolving to an array of DomainData objects
+     */
+    private async loadDomainList(): Promise<DomainData[]> {
+        try {
+            console.log("Debug: Inside loadDomainList function");
+
+            // Check if domain_list is defined and is an array
+            console.log("Debug: domain_list type:", typeof domain_list);
+
+            // Case 1: domain_list is already an array
+            if (Array.isArray(domain_list)) {
+                console.log(`Debug: domain_list is an array with ${domain_list.length} items`);
+
+                // Map each item to ensure all required properties are present
+                const mappedData = domain_list.map((item, index) => {
+                    // Create a properly typed DomainData object with all required fields
+                    const domainItem: DomainData = {
+                        Domain_Id: item.Domain_Id || 0,
+                        Domain_Code: item.Domain_Code || '',
+                        Domain_Name: item.Domain_Name || '',
+                        Sub_Domain_Name: item.Sub_Domain_Name || '',
+                        Question: item.Question || '',
+                        Question_Description: item.Question_Description || ''
+                    };
+
+                    return domainItem;
+                });
+
+                return mappedData;
+            }
+
+            // Case 2: If it's not an array, try to find array properties
+            try {
+                // Log available keys to help with debugging
+                const domainKeys = Object.keys(domain_list);
+                console.log("Debug: domain_list object keys:", domainKeys);
+
+                // Try each property to find an array
+                for (const key of domainKeys) {
+                    try {
+                        if (domain_list[key] && Array.isArray(domain_list[key])) {
+                            console.log(`Debug: Found array in domain_list.${key}`);
+
+                            // Map the array to DomainData objects
+                            return (domain_list[key] as unknown as DomainData[]).map(item => {
+                                const safeItem = item || {};
+                                return {
+                                    Domain_Id: safeItem.Domain_Id || 0,
+                                    Domain_Code: safeItem.Domain_Code || '',
+                                    Domain_Name: safeItem.Domain_Name || '',
+                                    Sub_Domain_Name: safeItem.Sub_Domain_Name || '',
+                                    Question: safeItem.Question || '',
+                                    Question_Description: safeItem.Question_Description || ''
+                                };
+                            });
+                        }
+                    } catch (keysError) {
+                        console.error("Error getting object keys:", keysError);
+                    }
+                }
+            } catch (error) {
+                console.error("Error loading domain list:", error);
+                return [];
+            }
+
+            // If we got here, we couldn't find a valid array
+            console.error("Error: Could not find domain list array in the imported data");
+            return [];
+        } catch (error) {
+            console.error("Error loading domain list:", error);
+            return [];
+        }
+    }
+
+    /**
+     * Processes the questionnaire file and extracts questions
+     * Works with either File objects or FileWithBase64 objects
+     * @param questionnaireFile The uploaded questionnaire file or base64 representation
+     * @returns JSON array with id, question, and prompt
+     */
     private extractSubQuestions(description: string): string[] {
-        if (!description) {
-            console.warn('Empty description provided');
+        console.log("Debug: Entered extractSubQuestions method.");
+
+        if (!description?.includes('Design elements:')) {
+            console.log("Debug: Description does not contain 'Design elements:'. Returning an empty array.");
             return [];
         }
 
-        // Normalize line endings and remove extra whitespace
-        const normalizedDesc = description.replace(/\r\n/g, '\n').trim();
+        const [mainPart, elements] = description.split('Design elements:');
 
-        // Check for design element pattern
-        if (!normalizedDesc.toLowerCase().includes('design element:')) {
-            console.log('No design elements found in description');
-            return [];
-        }
-
-        // Split on design element marker
-        const [mainPart, elements] = normalizedDesc.split(/design element:/i);
         if (!elements) {
-            console.log('No elements found after design element marker');
+            console.log("Debug: 'elements' is null or undefined. Returning an empty array.");
             return [];
         }
 
         const mainQuestion = mainPart.trim();
+        console.log(`Debug: mainQuestion extracted and trimmed: "${mainQuestion}"`);
 
-        // Extract numbered items using regex
-        const numberedItems = elements.match(/^\s*\d+\.\s*(.+)$/gm);
-        if (!numberedItems) {
-            console.log('No numbered items found in elements');
-            return [];
-        }
+        const lines = elements.split(/\r?\n/);
+        console.log(`Debug: Split 'elements' into ${lines.length} lines:`);
+        lines.forEach((line, i) => console.log(`Debug: Line ${i}: ${line}`));
 
-        // Process each numbered item
-        return numberedItems
-            .map(item => {
-                const cleanedItem = item.replace(/^\s*\d+\.\s*/, '').trim();
-                return `${mainQuestion} design element: ${cleanedItem}`;
+        const numberedLines = lines.filter(line => /^\s*\d+\./.test(line));
+        console.log(`Debug: Filtered ${numberedLines.length} numbered lines:`);
+        numberedLines.forEach((line, i) => console.log(`Debug: Line ${i}: ${line.substring(0, 1000)}...`));
+
+        const result = numberedLines
+            .map(line => {
+                const cleanedLine = line.replace(/^\s*\d+\.\s*/, '').trim();
+                console.log(`Debug: Cleaned line: "${cleanedLine}"`);
+                return `${mainQuestion} with the following design element: ${cleanedLine}`;
             })
             .filter(q => q.length > 0);
-    }
 
-    private async readExcelFile(file: File): Promise<any[]> {
-        try {
-            const buffer = await file.arrayBuffer();
-            const workbook = XLSX.read(buffer, { type: 'buffer' });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            return XLSX.utils.sheet_to_json(sheet);
-        } catch (error) {
-            console.error('Error reading Excel file:', error);
-            throw new Error('Failed to read Excel file: ' + (error instanceof Error ? error.message : String(error)));
-        }
-    }
+        console.log(`Debug: Final result array with ${result.length} items:`);
+        result.forEach((item, i) => console.log(`Debug: Result ${i}: ${item.substring(0, 1000) + (item.length > 1000 ? '...' : '')}`));
 
-    async processFiles(domainFile: File, questionnaireFile: File): Promise<Record<string, string[]>> {
-        try {
-            // Validate files
-            this.validateFile(domainFile, ['XLS', 'XLSX']);
-            this.validateFile(questionnaireFile, ['XLS', 'XLSX']);
-
-            // Read files
-            const [domains, questions] = await Promise.all([
-                this.readExcelFile(domainFile),
-                this.readExcelFile(questionnaireFile)
-            ]);
-
-            console.log('Domains loaded:', domains.length, 'records');
-            console.log('Questions loaded:', questions.length, 'records');
-
-            // Process questions
-            const questionMap: Record<string, string[]> = {};
-            const processedDomains = new Set<string>();
-
-            questions.forEach((question: QuestionData, index: number) => {
-                const domainCode = this.extractDomainCode(question['Questionnaire Name']);
-                if (!domainCode) {
-                    console.warn(`Skipping question ${index + 1}: Invalid domain code`);
-                    return;
-                }
-
-                const fileExtension = this.getFileExtension(question['Attachement Reference']);
-                if (!this.SUPPORTED_FILE_TYPES.includes(fileExtension)) {
-                    console.warn(`Skipping question ${index + 1}: Unsupported file type ${fileExtension}`);
-                    return;
-                }
-
-                const mainQuestion = question['Question'];
-                const subQuestions = this.extractSubQuestions(question['Question Description']);
-
-                if (subQuestions.length > 0) {
-                    subQuestions.forEach((subQ, idx) => {
-                        const key = `${mainQuestion}_${idx + 1}`;
-                        questionMap[key] = [subQ];
-                    });
-                    processedDomains.add(domainCode);
-                } else {
-                    questionMap[mainQuestion] = [question['Question Description'] || ''];
-                }
-            });
-
-            console.log('Processed domains:', Array.from(processedDomains));
-            console.log('Final question map:', Object.keys(questionMap).length, 'questions');
-
-            return questionMap;
-        } catch (error) {
-            console.error('Processing failed:', error);
-            throw error;
-        }
+        return result;
     }
 
     private extractDomainCode(questionnaireName: string): string {
+        console.log("Debug: Entered extractDomainCode method.");
+        console.log(`Debug: Input questionnaireName: "${questionnaireName}"`);
+
         if (!questionnaireName || !questionnaireName.includes('-')) {
-            console.warn('Invalid Questionnaire Name:', questionnaireName);
+            console.log("Debug: 'questionnaireName' is invalid or does not contain a hyphen. Returning an empty string.");
             return '';
         }
+
         const normalized = questionnaireName.trim();
+        console.log(`Debug: Normalized questionnaireName: "${normalized}"`);
+
         const parts = normalized.split('-');
-        return parts[0]?.trim() || '';
+        console.log("Debug: Split questionnaireName into parts:", parts);
+
+        const domainCode = parts[0]?.trim() || '';
+        console.log(`Debug: Extracted domainCode: "${domainCode}"`);
+
+        return domainCode;
     }
 
     private getFileExtension(reference: string): string {
-        if (!reference) return '';
+        console.log("Debug: Entered getFileExtension method.");
+        if (!reference) {
+            console.log("Debug: 'reference' is null or undefined. Returning an empty string.");
+            return '';
+        }
+
         const parts = reference.split('.');
-        return parts.length > 1 ? parts.pop()?.toUpperCase() || '' : '';
+        console.log("Debug: Split reference into parts:", parts);
+
+        const extension = parts.length > 1 ? parts.pop()?.toUpperCase() || '' : '';
+        console.log(`Debug: Extracted file extension: "${extension}"`);
+
+        return extension;
+    }
+
+    private async readExcelFile(file: File | FileWithBase64): Promise<any[]> {
+        console.log("Debug: Entered readExcelFile method");
+        let workbook: XLSX.WorkBook;
+
+        try {
+            if ('base64' in file) {
+                console.log("Debug: File is of type FileWithBase64. Decoding base64 content.");
+                const binary = atob(file.base64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                workbook = XLSX.read(bytes, { type: 'array' });
+            } else {
+                console.log("Debug: File is of type File. Reading file content.");
+                const arrayBuffer = await file.arrayBuffer();
+                workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            }
+        } catch (error) {
+            console.error("Error reading Excel file:", error);
+            throw error;
+        }
+
+        console.log("Debug: Successfully read the Excel workbook.");
+        const sheetNames = workbook.SheetNames;
+        console.log("Debug: Available sheet names:", sheetNames);
+
+        // Look specifically for the "Data" sheet
+        if (!sheetNames.includes('Data')) {
+            console.error("Error: Excel file does not contain a 'Data' sheet");
+            throw new Error("Excel file must contain a 'Data' sheet");
+        }
+
+        // Only process the "Data" sheet
+        console.log("Debug: Processing 'Data' sheet");
+        const sheet = workbook.Sheets['Data'];
+        const sheetData = XLSX.utils.sheet_to_json(sheet);
+        console.log(`Debug: Extracted ${sheetData.length} rows from 'Data' sheet`);
+
+        return sheetData;
+    }
+
+    /**
+     * Process questionnaire file and extract questions
+     * Works with either File objects or FileWithBase64 objects
+     * @param questionnaireFile The uploaded questionnaire file or base64 representation
+     * @returns Promise containing extracted question prompts
+     */
+    async processQuestionnaire(
+        questionnaireFile: File | FileWithBase64
+    ): Promise<QuestionPrompt[]> {
+        console.log("Debug: Entered processQuestionnaire method");
+        console.log("Debug: Processing file:", ('name' in questionnaireFile) ? questionnaireFile.name : 'base64 file');
+
+        try {
+            // Step 1: Load domain list and read Excel file concurrently
+            console.log("Debug: Loading domain list and Excel data");
+            const [domainList, questions] = await Promise.all([
+                this.loadDomainList(),
+                this.readExcelFile(questionnaireFile)
+            ]);
+
+            console.log(`Debug: Domain list has ${domainList.length} items`);
+            console.log(`Debug: First domain item:`, domainList.length > 0 ? domainList[0] : 'No domains found');
+
+            console.log(`Debug: Excel data has ${questions.length} rows`);
+
+            // Step 3: Create domain map for quick lookups using Domain_Code as key
+            const domainMap = new Map<string, DomainData>();
+            for (let i = 0; i < domainList.length; i++) {
+                if (domainList[i] && domainList[i].Domain_Code) {
+                    console.log(`Debug: Adding domain to map: ${domainList[i].Domain_Code}`);
+                    domainMap.set(domainList[i].Domain_Code, domainList[i]);
+                } else {
+                    console.log("Debug: Skipping invalid domain item:", domainList[i]);
+                }
+            }
+
+            // Debug: Log all available domain codes
+            const availableDomainCodes = Array.from(domainMap.keys());
+            console.log("Debug: Available domain codes in map:", availableDomainCodes);
+
+            console.log(`Debug: Domain map has ${domainMap.size} entries`);
+            console.log(`Debug: Excel data has ${questions.length} rows`);
+
+            // Step 4: Process each question from Excel
+            const result: QuestionPrompt[] = [];
+            questions.forEach((question: QuestionData, idx: number) => {
+                console.log(`Debug: Processing question ${idx}:`, question['Questionnaire Name']);
+
+                // Extract domain code from questionnaire name
+                const questionnaireName = question['Questionnaire Name'] || '';
+                const domainCode = this.extractDomainCode(questionnaireName);
+                console.log(`Debug: Extracted domain code: "${domainCode}"`);
+                console.log(`Debug: Questionnaire name was: "${questionnaireName}"`);
+
+                // Debug: Check if domain code exists in map (case sensitive check)
+                console.log(`Debug: Does domain map contain "${domainCode}"?`, domainMap.has(domainCode));
+
+                // Debug: Try case-insensitive lookup
+                const caseInsensitiveDomainCode = availableDomainCodes.find(code =>
+                    code.toLowerCase() === domainCode.toLowerCase()
+                );
+                if (caseInsensitiveDomainCode && caseInsensitiveDomainCode !== domainCode) {
+                    console.log(`Debug: Found case-insensitive match: "${caseInsensitiveDomainCode}" vs "${domainCode}"`);
+                }
+
+                // Look up domain by code
+                const domain = domainMap.get(domainCode);
+                if (!domain) {
+                    console.log(`Debug: No domain found for code: "${domainCode}"`);
+                    console.log(`Debug: Available codes are:`, availableDomainCodes);
+                    return;
+                }
+
+                console.log(`Debug: Found matching domain: ${domain.Domain_Id} - ${domain.Domain_Name}`);
+                console.log(`Debug: Question_Description: ${domain.Question_Description?.substring(0, 100) + (domain.Question_Description?.length > 100 ? '...' : '')}`);
+
+                // Extract sub-questions from domain Question_Description
+                const subQuestions = this.extractSubQuestions(domain.Question_Description);
+                console.log(`Debug: Extracted ${subQuestions.length} sub-questions`);
+
+                // Create prompts for each sub-question
+                subQuestions.forEach(subQ => {
+                    // 1. Remove the question mark from domain.Question if present
+                    const questionText = domain.Question?.replace(/\?$/, '') || '';
+                    console.log("Question text : ", questionText)
+
+                    // 2. Extract only the part after "with the following design element:"
+                    let cleanSubQ = subQ;
+                    if (cleanSubQ.includes("with the following design element:")) {
+                        const parts = cleanSubQ.split("with the following design element:");
+                        cleanSubQ = parts[1] ? parts[1].trim() : cleanSubQ;
+                    }
+
+                    // 3. Format the prompt properly
+                    const prompt = `${questionText} with the following design element ${cleanSubQ}`;
+
+                    result.push({
+                        id: domain.Domain_Code,
+                        question: questionText,
+                        prompt: prompt
+                    });
+                });
+            });
+
+            console.log(`Debug: Generated ${result.length} question prompts`);
+            return result;
+        } catch (error) {
+            console.error("Error processing questionnaire:", error);
+            throw error;
+        }
     }
 
     private async extractZipFile(zipFile: File): Promise<JSZip> {
@@ -218,7 +456,7 @@ export class ExcelProcessor {
         }
     }
 
-    private async findEvidenceFolders(zip: JSZip): Promise<string[]> {
+    private async findDomainFolders(zip: JSZip): Promise<string[]> {
         const folders = Object.keys(zip.files)
             .filter(path =>
                 zip.files[path].dir &&
@@ -231,9 +469,9 @@ export class ExcelProcessor {
         return folders;
     }
 
-    private async getEvidenceFiles(zip: JSZip, cidFolder: string): Promise<string[]> {
+    private async getEvidenceFiles(zip: JSZip, domainFolder: string): Promise<string[]> {
         const files = Object.keys(zip.files)
-            .filter(path => path.startsWith(cidFolder) && !path.endsWith('/'))
+            .filter(path => path.startsWith(domainFolder) && !path.endsWith('/'))
             .filter(path => {
                 const extension = this.getFileExtension(path);
                 return this.SUPPORTED_FILE_TYPES.includes(extension);
@@ -253,49 +491,313 @@ export class ExcelProcessor {
             .filter(de => de.subQuestions.length > 0);
     }
 
-    async processZipFile(zipFile: File): Promise<VendorEvidence[]> {
+    /**
+     * Process ZIP file containing domain folders and vendor questionnaire
+     * Generates prompts based on domain codes from the vendor questionnaire
+     */
+    async processZipFile(zipFile: File): Promise<ZipProcessResult> {
         try {
+            console.log("Debug: Starting ZIP file processing...");
+
             // Validate zip file
             this.validateFile(zipFile, ['ZIP']);
 
             // Extract zip file
             const zip = await this.extractZipFile(zipFile);
+            console.log("Debug: ZIP file extracted successfully");
+
+            // Get file structure for UI display
+            const allFiles = Object.keys(zip.files);
+            const folders = allFiles.filter(path => zip.files[path].dir);
+            const files = allFiles.filter(path => !zip.files[path].dir);
+            const pdfFiles = files.filter(path => path.toLowerCase().endsWith('.pdf'));
+            const excelFiles = files.filter(path =>
+                path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')
+            );
+            const otherFiles = files.filter(path =>
+                !path.toLowerCase().endsWith('.pdf') &&
+                !path.toLowerCase().endsWith('.xls') &&
+                !path.toLowerCase().endsWith('.xlsx')
+            );
 
             // Find and process vendor questionnaire
+            console.log("Debug: Looking for vendor questionnaire...");
             const questionnaire = await this.findVendorQuestionnaire(zip);
             if (!questionnaire) {
+                console.error('Debug: No Excel file found in ZIP');
                 throw new Error('No valid Excel file found in zip file');
             }
 
-            // Process questionnaire data
-            const questions: QuestionData[] = XLSX.utils.sheet_to_json(questionnaire.Sheets[questionnaire.SheetNames[0]]);
-            const designElements = this.extractDesignElements(questions);
+            console.log("Debug: Vendor questionnaire found successfully");
+            console.log("Debug: Sheet names:", questionnaire.SheetNames);
 
-            // Find CID folders
-            const cidFolders = await this.findEvidenceFolders(zip);
-            if (cidFolders.length === 0) {
-                throw new Error('No CID folders found in zip file');
+            // Process questionnaire data
+            let sheetToProcess = 'Data';
+            if (!questionnaire.SheetNames.includes('Data')) {
+                sheetToProcess = questionnaire.SheetNames[0];
+                console.log(`Debug: Using sheet: ${sheetToProcess}`);
             }
 
-            // Process each CID folder
-            const vendorEvidence: VendorEvidence[] = await Promise.all(
-                cidFolders.map(async (cidFolder) => {
-                    const cid = cidFolder;
-                    const evidenceFiles = await this.getEvidenceFiles(zip, cidFolder);
+            const questions: QuestionData[] = XLSX.utils.sheet_to_json(questionnaire.Sheets[sheetToProcess]);
+            console.log(`Debug: Extracted ${questions.length} questions from questionnaire`);
 
-                    return {
-                        cid,
-                        designElements,
-                        evidenceFiles
-                    };
-                })
-            );
+            if (questions.length === 0) {
+                console.warn('Debug: No questions found in questionnaire');
+                return {
+                    prompts: [],
+                    zipContents: {
+                        summary: {
+                            totalItems: 0,
+                            folders: 0,
+                            totalFiles: 0,
+                            pdfFiles: 0,
+                            excelFiles: 0,
+                            otherFiles: 0
+                        },
+                        folders: [],
+                        pdfFiles: [],
+                        excelFiles: [],
+                        otherFiles: []
+                    }
+                };
+            }
 
-            console.log('Processed vendor evidence:', vendorEvidence);
-            return vendorEvidence;
+            // Show sample question structure
+            if (questions.length > 0) {
+                console.log("Debug: Sample question:", {
+                    questionnaireName: questions[0]['Questionnaire Name'],
+                    attachmentRef: questions[0]['Attachement Reference'],
+                    question: questions[0]['Question']
+                });
+            }
+
+            // Load domain list
+            console.log("Debug: Loading domain list...");
+            const domainList = await this.loadDomainList();
+            console.log(`Debug: Loaded ${domainList.length} domains`);
+
+            if (domainList.length === 0) {
+                console.error('Debug: No domains loaded from domain list');
+                throw new Error('Failed to load domain list');
+            }
+
+            // Create domain map
+            const domainMap = new Map<string, DomainData>();
+            domainList.forEach(domain => {
+                if (domain.Domain_Code) {
+                    domainMap.set(domain.Domain_Code, domain);
+                }
+            });
+            console.log(`Debug: Created domain map with ${domainMap.size} entries`);
+
+            // Process questions
+            console.log("Debug: Processing questions...");
+            const result: QuestionPrompt[] = [];
+            let processedCount = 0;
+
+            for (const question of questions) {
+                try {
+                    const questionnaireName = question['Questionnaire Name'] || '';
+                    const domainCode = this.extractDomainCode(questionnaireName);
+
+                    if (!domainCode) {
+                        continue; // Skip if no domain code found
+                    }
+
+                    const domain = domainMap.get(domainCode);
+                    if (!domain) {
+                        continue; // Skip if domain not found
+                    }
+
+                    // Extract sub-questions
+                    const subQuestions = this.extractSubQuestions(domain.Question_Description);
+
+                    if (subQuestions.length > 0) {
+                        subQuestions.forEach(subQ => {
+                            const questionText = domain.Question?.replace(/\?$/, '') || '';
+
+                            let cleanSubQ = subQ;
+                            if (cleanSubQ.includes("with the following design element:")) {
+                                const parts = cleanSubQ.split("with the following design element:");
+                                cleanSubQ = parts[1] ? parts[1].trim() : cleanSubQ;
+                            }
+
+                            const prompt = `${questionText} with the following design element ${cleanSubQ}`;
+
+                            result.push({
+                                id: domain.Domain_Code,
+                                question: questionText,
+                                prompt: prompt
+                            });
+                        });
+                        processedCount++;
+                    }
+                } catch (questionError) {
+                    console.warn('Debug: Error processing individual question:', questionError);
+                    // Continue processing other questions
+                }
+            }
+
+            console.log(`Debug: Processed ${processedCount} questions successfully`);
+            console.log(`Debug: Generated ${result.length} question prompts`);
+
+            if (result.length === 0) {
+                console.warn('Debug: No prompts generated - check domain code matching');
+                console.log('Debug: Available domain codes:', Array.from(domainMap.keys()));
+            }
+
+            // Create ZipContents object
+            const zipContents: ZipContents = {
+                summary: {
+                    totalItems: allFiles.length,
+                    folders: folders.length,
+                    totalFiles: files.length,
+                    pdfFiles: pdfFiles.length,
+                    excelFiles: excelFiles.length,
+                    otherFiles: otherFiles.length
+                },
+                folders: folders.map(folder => ({
+                    name: folder,
+                    path: folder,
+                    contents: files.filter(path => path.startsWith(folder) && path !== folder)
+                        .map(path => ({
+                            fileName: path.replace(folder, ''),
+                            path: path,
+                            type: (path.endsWith('.pdf') ? 'pdf' :
+                                (path.endsWith('.xls') || path.endsWith('.xlsx')) ? 'excel' : 'other') as 'folder' | 'pdf' | 'excel' | 'other',
+                            extension: this.getFileExtension(path)
+                        }))
+                })),
+                pdfFiles: pdfFiles.map(path => ({
+                    fileName: path.split('/').pop() || path,
+                    path: path,
+                    type: 'pdf' as const,
+                    extension: this.getFileExtension(path)
+                })),
+                excelFiles: excelFiles.map(path => ({
+                    fileName: path.split('/').pop() || path,
+                    path: path,
+                    type: 'excel' as const,
+                    extension: this.getFileExtension(path)
+                })),
+                otherFiles: otherFiles.map(path => ({
+                    fileName: path.split('/').pop() || path,
+                    path: path,
+                    type: 'other' as const,
+                    extension: this.getFileExtension(path)
+                }))
+            };
+
+            return {
+                prompts: result,
+                zipContents: zipContents,
+                vendorQuestionnaire: {
+                    fileName: excelFiles[0] || '',
+                    sheetNames: questionnaire.SheetNames,
+                    questionsCount: questions.length
+                }
+            };
+
         } catch (error) {
-            console.error('Error processing zip file:', error);
+            console.error('Debug: Error in processZipFile:', error);
+            // Return empty array instead of throwing to prevent UI from breaking
+            return {
+                prompts: [],
+                zipContents: {
+                    summary: {
+                        totalItems: 0,
+                        folders: 0,
+                        totalFiles: 0,
+                        pdfFiles: 0,
+                        excelFiles: 0,
+                        otherFiles: 0
+                    },
+                    folders: [],
+                    pdfFiles: [],
+                    excelFiles: [],
+                    otherFiles: []
+                }
+            };
+        }
+    }
+
+    /**
+     * Debug method to test reading vendor questionnaire and extracting domain codes
+     * @param questionnaireFile The uploaded Excel file
+     * @returns Promise containing debug information
+     */
+    async debugQuestionnaireReading(questionnaireFile: File | FileWithBase64): Promise<any> {
+        try {
+            console.log("Debug: Testing questionnaire reading...");
+
+            // Step 1: Read the Excel file
+            const questions = await this.readExcelFile(questionnaireFile);
+            console.log(`Debug: Successfully read ${questions.length} questions from Excel file`);
+
+            // Step 2: Log first few questions to see structure
+            if (questions.length > 0) {
+                console.log("Debug: First question structure:", questions[0]);
+                console.log("Debug: Column names:", Object.keys(questions[0]));
+            }
+
+            // Step 3: Try to extract domain codes from first 5 questions
+            const domainCodes: string[] = [];
+            questions.slice(0, 5).forEach((question: any, idx: number) => {
+                console.log(`Debug: Question ${idx}:`, {
+                    questionnaireName: question['Questionnaire Name'],
+                    attachmentRef: question['Attachement Reference'],
+                    question: question['Question']
+                });
+
+                const domainCode = this.extractDomainCode(question['Questionnaire Name'] || '');
+                console.log(`Debug: Extracted domain code: "${domainCode}"`);
+
+                if (domainCode) {
+                    domainCodes.push(domainCode);
+                }
+
+                const fileExtension = this.getFileExtension(question['Attachement Reference'] || '');
+                console.log(`Debug: File extension: "${fileExtension}"`);
+            });
+
+            // Step 4: Load domain list and check matches
+            const domainList = await this.loadDomainList();
+            console.log(`Debug: Loaded ${domainList.length} domains`);
+            console.log("Debug: Available domain codes:", domainList.map(d => d.Domain_Code));
+
+            // Check which extracted codes have matches
+            const uniqueDomainCodes = [...new Set(domainCodes)];
+            console.log("Debug: Unique extracted domain codes:", uniqueDomainCodes);
+
+            uniqueDomainCodes.forEach(code => {
+                const match = domainList.find(d => d.Domain_Code === code);
+                console.log(`Debug: Domain code "${code}" has match:`, !!match);
+                if (match) {
+                    console.log(`Debug: Matched domain:`, match);
+                }
+            });
+
+            return {
+                questionsCount: questions.length,
+                extractedDomainCodes: uniqueDomainCodes,
+                availableDomainCodes: domainList.map(d => d.Domain_Code),
+                matches: uniqueDomainCodes.map(code => ({
+                    code,
+                    hasMatch: !!domainList.find(d => d.Domain_Code === code)
+                }))
+            };
+
+        } catch (error) {
+            console.error("Debug: Error in questionnaire reading:", error);
             throw error;
         }
     }
+}
+
+// Add FileWithBase64 interface
+interface FileWithBase64 {
+    name: string;
+    type: string;
+    size: number;
+    base64: string;
 }
