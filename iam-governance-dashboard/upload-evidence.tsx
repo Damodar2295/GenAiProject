@@ -36,11 +36,14 @@ import {
 import { AuthGuard } from './components/AuthGuard';
 import { FeedbackData, LLMAnalysisResponse, EvidenceFile, AnalysisResults } from './types/survey';
 
-// Import utilities from processEvidence.ts
+// Import utilities from commandHandler.ts
 import {
-    uploadImageHandlerLLM,
-    validateImageFiles
-} from './utils/processEvidence';
+    commandHandlers,
+    validateImageFiles,
+    getCommandHandler,
+    type EvidenceAnalysisResponse,
+    type CommandHandler
+} from './utils/commandHandler';
 
 // Define Wells Fargo colors
 const wfColors = {
@@ -103,17 +106,7 @@ const UploadEvidence: React.FC = () => {
     const [feedbackRating, setFeedbackRating] = useState<number>(0);
     const [feedbackSubmitted, setFeedbackSubmitted] = useState<boolean>(false);
 
-    // File to base64 conversion
-    const fileToBase64 = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = (error) => reject(error);
-            reader.readAsDataURL(file);
-        });
-    };
-
-    // Test LLM API functionality
+    // Test LLM API functionality using Command Handler Pattern
     const testLLMAPI = async () => {
         if (files.length === 0) {
             alert('Please select at least one image file to test LLM functionality.');
@@ -131,81 +124,58 @@ const UploadEvidence: React.FC = () => {
         setLlmTestResults([]);
 
         try {
-            console.log('Starting LLM API test with', files.length, 'files');
+            console.log('🧪 Starting LLM API test with command handler pattern');
 
-            const testResults = [];
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-
-                if (file.type.startsWith('image/')) {
-                    try {
-                        const base64Data = await fileToBase64(file);
-
-                        const payload = {
-                            imageBase64: base64Data,
-                            filename: file.name,
-                            token: 'test-token',
-                            username: 'test-user'
-                        };
-
-                        const response = await fetch('/api/v1/getLLMResponseForEvidence', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (response.ok) {
-                            const result = await response.json();
-                            testResults.push({
-                                filename: file.name,
-                                status: 'success',
-                                message: 'LLM response received successfully',
-                                response: result,
-                                fileSize: file.size,
-                                fileType: file.type
-                            });
-                        } else {
-                            const errorText = await response.text();
-                            testResults.push({
-                                filename: file.name,
-                                status: 'error',
-                                message: `API Error: ${response.status} - ${errorText}`,
-                                response: null,
-                                fileSize: file.size,
-                                fileType: file.type
-                            });
-                        }
-                    } catch (error) {
-                        testResults.push({
-                            filename: file.name,
-                            status: 'error',
-                            message: error instanceof Error ? error.message : 'Processing failed',
-                            response: null,
-                            fileSize: file.size,
-                            fileType: file.type
-                        });
-                    }
-                } else {
-                    testResults.push({
-                        filename: file.name,
-                        status: 'skipped',
-                        message: 'Non-image file skipped',
-                        response: null,
-                        fileSize: file.size,
-                        fileType: file.type
-                    });
-                }
+            // Get the test command handler
+            const testHandler = getCommandHandler("test_llm");
+            if (!testHandler) {
+                throw new Error("Test LLM command handler not found");
             }
 
-            setLlmTestResults(testResults);
+            // Execute command handler
+            const testResults = await testHandler("test_analysis", files, "test-user");
+
+            // Transform results for UI display
+            const formattedResults = testResults.map((result: EvidenceAnalysisResponse | any) => {
+                if (result.status === 'completed') {
+                    const sourceFile = files.find((f: File) => f.name === result.filename);
+                    return {
+                        filename: result.filename,
+                        status: 'success',
+                        message: 'LLM response received successfully via command handler',
+                        response: result.analysis,
+                        fileSize: sourceFile?.size || 0,
+                        fileType: sourceFile?.type || 'unknown'
+                    };
+                } else if (result.status === 'error') {
+                    const sourceFile = files.find((f: File) => f.name === result.filename);
+                    return {
+                        filename: result.filename,
+                        status: 'error',
+                        message: `Analysis Error: ${result.error}`,
+                        response: null,
+                        fileSize: sourceFile?.size || 0,
+                        fileType: sourceFile?.type || 'unknown'
+                    };
+                } else {
+                    // Handle bot response format
+                    return {
+                        filename: 'general',
+                        status: result.error ? 'error' : 'info',
+                        message: result.text || result.error || 'Processing completed',
+                        response: result,
+                        fileSize: 0,
+                        fileType: 'system'
+                    };
+                }
+            });
+
+            setLlmTestResults(formattedResults);
             setShowTestModal(true);
 
-            const successfulTests = testResults.filter(r => r.status === 'success');
+            const successfulTests = formattedResults.filter((r: any) => r.status === 'success');
             if (successfulTests.length > 0) {
-                console.log(`🎉 LLM API Test Complete! ${successfulTests.length}/${testResults.length} files processed successfully`);
+                console.log(`🎉 LLM API Test Complete! ${successfulTests.length}/${formattedResults.length} files processed successfully`);
             } else {
                 console.warn('⚠️ No files were processed successfully');
             }
@@ -219,7 +189,7 @@ const UploadEvidence: React.FC = () => {
         }
     };
 
-    // Handle upload and analysis
+    // Handle upload and analysis using Command Handler Pattern
     const handleUpload = async () => {
         if (files.length === 0) return;
 
@@ -227,7 +197,7 @@ const UploadEvidence: React.FC = () => {
         setTestError('');
 
         try {
-            console.log('Starting upload and LLM processing...');
+            console.log('Starting upload and LLM processing using command handler pattern...');
             setUploadComplete(true);
             setUploading(false);
 
@@ -245,7 +215,7 @@ const UploadEvidence: React.FC = () => {
         }
     };
 
-    // Start analysis with LLM
+    // Start analysis with LLM using Command Handler Pattern
     const startAnalysisWithLLM = async () => {
         setIsAnalyzing(true);
         setAnalyzingProgress(0);
@@ -258,81 +228,49 @@ const UploadEvidence: React.FC = () => {
                 });
             }, 800);
 
-            const analysisResults = [];
-            const evidenceAnalysis = [];
+            console.log('🔍 Starting evidence analysis using command handler pattern...');
 
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-
-                if (file.type.startsWith('image/')) {
-                    try {
-                        const base64Data = await fileToBase64(file);
-
-                        const payload = {
-                            imageBase64: base64Data,
-                            filename: file.name,
-                            token: 'analysis-token',
-                            username: 'current-user'
-                        };
-
-                        const response = await fetch('/api/v1/getLLMResponseForEvidence', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (response.ok) {
-                            const result = await response.json();
-                            analysisResults.push({
-                                filename: file.name,
-                                result: result,
-                                status: 'completed'
-                            });
-
-                            // Structure evidence analysis for UI
-                            evidenceAnalysis.push({
-                                questionId: `evidence_${i + 1}`,
-                                evidence: {
-                                    hasImage: true,
-                                    fileName: file.name
-                                },
-                                observation: result.observation || 'Analysis completed',
-                                relevance: result.relevance || 'Relevant to IAM compliance assessment',
-                                analysis: result.analysis || result.response || 'Analysis results available',
-                                status: result.compliance_status || 'Partially Compliant'
-                            });
-                        }
-                    } catch (error) {
-                        console.error(`Error processing ${file.name}:`, error);
-                        analysisResults.push({
-                            filename: file.name,
-                            result: null,
-                            status: 'error',
-                            error: error instanceof Error ? error.message : 'Processing failed'
-                        });
-                    }
-                }
-
-                setAnalyzingProgress(90 + ((i + 1) / files.length) * 10);
+            // Get the analysis command handler
+            const analysisHandler = getCommandHandler("analyze_evidence");
+            if (!analysisHandler) {
+                throw new Error("Evidence analysis command handler not found");
             }
+
+            // Execute command handler
+            const analysisResults = await analysisHandler("analyze_compliance", files, "current-user");
+
+            console.log('📊 Command handler analysis results:', analysisResults);
 
             clearInterval(progressInterval);
             setAnalyzingProgress(100);
 
+            // Process results for UI display
+            const evidenceAnalysis = analysisResults
+                .filter((result: EvidenceAnalysisResponse | any) => result.filename) // Filter out system messages
+                .map((result: EvidenceAnalysisResponse | any, index: number) => ({
+                    questionId: `evidence_${index + 1}`,
+                    evidence: result.evidence || {
+                        hasImage: true,
+                        fileName: result.filename
+                    },
+                    observation: result.observation || 'Analysis completed successfully',
+                    relevance: result.relevance || 'Relevant to IAM compliance assessment',
+                    analysis: result.analysis?.analysis || result.analysis?.observation || 'Analysis results available',
+                    status: result.complianceStatus || result.analysis?.compliance_status || 'Partially Compliant'
+                }));
+
             // Create comprehensive analysis results
             const complianceResults = {
                 NHA_Compliance_Assessment: {
-                    Introduction: "This assessment analyzes the uploaded evidence for NHA compliance according to Wells Fargo IAM policies.",
+                    Introduction: "This assessment analyzes the uploaded evidence for NHA compliance according to Wells Fargo IAM policies using industry-standard command handler architecture.",
                     Evidence_Analysis: evidenceAnalysis,
-                    Addressing_Specific_Survey_Questions: evidenceAnalysis.map((item, index) => ({
+                    Addressing_Specific_Survey_Questions: evidenceAnalysis.map((item: any, index: number) => ({
                         Survey_Question: `Evidence Item ${index + 1} Compliance`,
                         Response_Based_on_Images: item.analysis,
                         Evidence_Reference: item.evidence.fileName
                     })),
-                    Summary: `Analysis of ${files.length} evidence files completed. Review individual assessments for detailed compliance status.`,
-                    Justification: "Assessment based on visual analysis of uploaded evidence against IAM compliance requirements using YAML-configured prompts.",
+                    Summary: `Analysis of ${files.length} evidence files completed using command handler pattern. Review individual assessments for detailed compliance status.`,
+                    Justification: "Assessment based on visual analysis of uploaded evidence against IAM compliance requirements using YAML-configured prompts via command handler architecture.",
                     Recommended_Actions: [
                         "Review all evidence items marked as non-compliant",
                         "Ensure eSAR inventory is up to date",
@@ -353,7 +291,7 @@ const UploadEvidence: React.FC = () => {
         } catch (error) {
             setIsAnalyzing(false);
             setTestError(error instanceof Error ? error.message : 'Analysis failed');
-            console.error('Analysis error:', error);
+            console.error('❌ Analysis error:', error);
         }
     };
 
@@ -771,7 +709,7 @@ const UploadEvidence: React.FC = () => {
 
                             <div className="mt-4 p-3 bg-light rounded">
                                 <small className="text-muted">
-                                    Processing {files.length} files using YAML-configured prompts for IAM compliance analysis...
+                                    Processing {files.length} files using command handler architecture with YAML-configured prompts...
                                 </small>
                             </div>
                         </Card.Body>
@@ -781,7 +719,7 @@ const UploadEvidence: React.FC = () => {
         </Container>
     );
 
-    // Render analysis results
+    // Render analysis results (simplified)
     const renderAnalysisResults = () => {
         if (!analysisResults) {
             return (
@@ -822,55 +760,15 @@ const UploadEvidence: React.FC = () => {
                             </Card.Header>
                         </Card>
 
-                        {/* LLM Test Results Summary */}
-                        {llmTestResults.length > 0 && (
-                            <Card className="shadow-sm border-0 mb-4">
-                                <Card.Header className="d-flex justify-content-between align-items-center">
-                                    <h5 className="mb-0">
-                                        <TestTube2 size={20} className="me-2 text-primary" />
-                                        LLM API Test Summary
-                                    </h5>
-                                    <Button
-                                        variant="outline-primary"
-                                        size="sm"
-                                        onClick={() => setShowTestModal(true)}
-                                    >
-                                        View Details
-                                    </Button>
-                                </Card.Header>
-                                <Card.Body>
-                                    <div className="row text-center">
-                                        <div className="col-md-4">
-                                            <div className="p-3">
-                                                <h4 className="text-success">{llmTestResults.filter(r => r.status === 'success').length}</h4>
-                                                <small className="text-muted">Successful</small>
-                                            </div>
-                                        </div>
-                                        <div className="col-md-4">
-                                            <div className="p-3">
-                                                <h4 className="text-danger">{llmTestResults.filter(r => r.status === 'error').length}</h4>
-                                                <small className="text-muted">Failed</small>
-                                            </div>
-                                        </div>
-                                        <div className="col-md-4">
-                                            <div className="p-3">
-                                                <h4 className="text-secondary">{llmTestResults.filter(r => r.status === 'skipped').length}</h4>
-                                                <small className="text-muted">Skipped</small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </Card.Body>
-                            </Card>
-                        )}
-
-                        {/* Introduction */}
+                        {/* Summary Card */}
                         <Card className="shadow-sm border-0 mb-4">
                             <Card.Body>
                                 <h5 className="mb-3">
                                     <Info size={20} className="me-2 text-primary" />
-                                    Assessment Introduction
+                                    Assessment Summary
                                 </h5>
-                                <p className="text-muted mb-0">{assessment.Introduction}</p>
+                                <p className="text-muted mb-3">{assessment.Summary}</p>
+                                <p className="text-muted">{assessment.Justification}</p>
                             </Card.Body>
                         </Card>
 
@@ -878,173 +776,36 @@ const UploadEvidence: React.FC = () => {
                         {assessment.Evidence_Analysis.map((evidence: any, index: number) => (
                             <Card key={index} className="shadow-sm border-0 mb-4">
                                 <Card.Header
-                                    className="d-flex justify-content-end align-items-center py-3"
-                                    style={{
-                                        backgroundColor: wfColors.light,
-                                        color: wfColors.dark
-                                    }}
+                                    className="d-flex justify-content-between align-items-center py-3"
+                                    style={{ backgroundColor: wfColors.light }}
                                 >
+                                    <h6 className="mb-0">Evidence {index + 1}: {evidence.evidence.fileName}</h6>
                                     <span
                                         style={{
                                             ...getStatusBadgeStyle(evidence.status),
                                             padding: '8px 16px',
                                             borderRadius: '6px',
                                             fontSize: '0.875rem',
-                                            fontWeight: '500',
-                                            display: 'inline-block'
+                                            fontWeight: '500'
                                         }}
                                     >
                                         {evidence.status}
                                     </span>
                                 </Card.Header>
-
-                                <Card.Body className="p-0">
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', minHeight: '200px' }}>
-                                        {/* Evidence Column */}
-                                        <div className="p-3 border-end" style={{ backgroundColor: '#f8f9fa' }}>
-                                            <h6 className="fw-bold mb-3" style={{ color: wfColors.dark }}>Evidence</h6>
-                                            <div className="text-center">
-                                                {evidence.evidence.hasImage ? (
-                                                    <div>
-                                                        <ImageIcon size={48} className="mb-2" style={{ color: wfColors.primary }} />
-                                                        <p className="small mb-0" style={{ color: wfColors.text }}>
-                                                            {evidence.evidence.fileName}
-                                                        </p>
-                                                    </div>
-                                                ) : (
-                                                    <div>
-                                                        <FileCheck size={48} className="mb-2 text-muted" />
-                                                        <p className="small mb-0 text-muted">
-                                                            {evidence.evidence.fileName}
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
+                                <Card.Body>
+                                    <div className="row">
+                                        <div className="col-md-6">
+                                            <h6 className="fw-bold">Observation</h6>
+                                            <p className="small">{evidence.observation}</p>
                                         </div>
-
-                                        {/* Observation Column */}
-                                        <div className="p-3 border-end">
-                                            <h6 className="fw-bold mb-3" style={{ color: wfColors.dark }}>Observation</h6>
-                                            <p className="small mb-0" style={{ color: wfColors.text, lineHeight: '1.4' }}>
-                                                {evidence.observation}
-                                            </p>
-                                        </div>
-
-                                        {/* Relevance Column */}
-                                        <div className="p-3 border-end">
-                                            <h6 className="fw-bold mb-3" style={{ color: wfColors.dark }}>Relevance</h6>
-                                            <p className="small mb-0" style={{ color: wfColors.text, lineHeight: '1.4' }}>
-                                                {evidence.relevance}
-                                            </p>
-                                        </div>
-
-                                        {/* Analysis Column */}
-                                        <div className="p-3">
-                                            <h6 className="fw-bold mb-3" style={{ color: wfColors.dark }}>Analysis</h6>
-                                            <p className="small mb-0" style={{ color: wfColors.text, lineHeight: '1.4' }}>
-                                                {evidence.analysis}
-                                            </p>
+                                        <div className="col-md-6">
+                                            <h6 className="fw-bold">Analysis</h6>
+                                            <p className="small">{evidence.analysis}</p>
                                         </div>
                                     </div>
                                 </Card.Body>
                             </Card>
                         ))}
-
-                        {/* Survey Questions Summary */}
-                        <Card className="shadow-sm border-0 mb-4">
-                            <Card.Header>
-                                <h5 className="mb-0">
-                                    <FileCheck size={20} className="me-2" />
-                                    Evidence Assessment Summary
-                                </h5>
-                            </Card.Header>
-                            <Card.Body className="p-0">
-                                <Table responsive className="mb-0">
-                                    <thead style={{ backgroundColor: wfColors.light }}>
-                                        <tr>
-                                            <th style={{ color: wfColors.dark, padding: '15px', width: '30%' }}>Evidence Item</th>
-                                            <th style={{ color: wfColors.dark, padding: '15px', width: '50%' }}>Analysis Result</th>
-                                            <th style={{ color: wfColors.dark, padding: '15px', width: '20%' }}>File Reference</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {assessment.Addressing_Specific_Survey_Questions.map((item: any, index: number) => (
-                                            <tr key={index}>
-                                                <td className="p-3">
-                                                    <strong style={{ color: wfColors.dark }}>{item.Survey_Question}</strong>
-                                                </td>
-                                                <td className="p-3" style={{ color: wfColors.text }}>
-                                                    {item.Response_Based_on_Images}
-                                                </td>
-                                                <td className="p-3">
-                                                    <Badge style={{ color: wfColors.text, border: `1px solid ${wfColors.border}`, backgroundColor: 'transparent' }}>
-                                                        {item.Evidence_Reference}
-                                                    </Badge>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </Table>
-                            </Card.Body>
-                        </Card>
-
-                        {/* Summary and Recommendations */}
-                        <Card className="shadow-sm border-0 mb-4">
-                            <Card.Header>
-                                <h5 className="mb-0">
-                                    <Zap size={20} className="me-2" />
-                                    Summary & Recommendations
-                                </h5>
-                            </Card.Header>
-                            <Card.Body>
-                                <div className="row">
-                                    <div className="col-md-8">
-                                        <h6 className="fw-bold mb-2">Summary</h6>
-                                        <p style={{ color: wfColors.text, lineHeight: '1.6' }}>{assessment.Summary}</p>
-
-                                        <h6 className="fw-bold mb-2 mt-4">Justification</h6>
-                                        <p style={{ color: wfColors.text, lineHeight: '1.6' }}>{assessment.Justification}</p>
-                                    </div>
-                                    <div className="col-md-4">
-                                        <h6 className="fw-bold mb-2">Recommended Actions</h6>
-                                        <ul className="list-unstyled">
-                                            {assessment.Recommended_Actions.map((action: string, index: number) => (
-                                                <li key={index} className="mb-2 d-flex align-items-start">
-                                                    <CheckCircle size={16} className="me-2 mt-1 text-primary flex-shrink-0" />
-                                                    <span className="small" style={{ color: wfColors.text }}>{action}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                </div>
-                            </Card.Body>
-                        </Card>
-
-                        {/* Evidence Preview */}
-                        {imagePreviewUrls.length > 0 && (
-                            <Card className="shadow-sm border-0 mb-4">
-                                <Card.Header>
-                                    <h5 className="mb-0">
-                                        <ImageIcon size={20} className="me-2" />
-                                        Uploaded Evidence Preview
-                                    </h5>
-                                </Card.Header>
-                                <Card.Body>
-                                    <Row>
-                                        {imagePreviewUrls.map((url, index) => (
-                                            <Col md={4} key={index} className="mb-3">
-                                                <Image
-                                                    src={url}
-                                                    alt={`Evidence ${index + 1}`}
-                                                    thumbnail
-                                                    style={{ width: '100%', maxHeight: '200px', objectFit: 'cover' }}
-                                                />
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                </Card.Body>
-                            </Card>
-                        )}
 
                         {/* Action Buttons */}
                         <div className="text-center mb-4">
@@ -1056,19 +817,6 @@ const UploadEvidence: React.FC = () => {
                             >
                                 <FileText size={20} className="me-2" />
                                 Download Report
-                            </Button>
-                            <Button
-                                style={{
-                                    backgroundColor: wfColors.secondary,
-                                    borderColor: wfColors.secondary,
-                                    color: wfColors.dark
-                                }}
-                                size="lg"
-                                onClick={() => setShowFeedbackModal(true)}
-                                className="me-3"
-                            >
-                                <MessageSquare size={20} className="me-2" />
-                                Provide Feedback
                             </Button>
                             <Button
                                 style={secondaryButtonStyle}
@@ -1086,101 +834,6 @@ const UploadEvidence: React.FC = () => {
                                 Thank you for your feedback! Your input helps us improve our AI analysis.
                             </Alert>
                         )}
-
-                        {/* Feedback Modal */}
-                        <Modal show={showFeedbackModal} onHide={() => setShowFeedbackModal(false)} size="lg" centered>
-                            <Modal.Header closeButton style={{ backgroundColor: wfColors.light }}>
-                                <Modal.Title>
-                                    <MessageSquare size={24} className="me-2" style={{ color: wfColors.primary }} />
-                                    Provide Feedback on Analysis
-                                </Modal.Title>
-                            </Modal.Header>
-                            <Modal.Body className="p-4">
-                                <Form>
-                                    {/* Rating Section */}
-                                    <Form.Group className="mb-4">
-                                        <Form.Label className="fw-bold mb-3">
-                                            How would you rate the accuracy of this analysis?
-                                        </Form.Label>
-                                        <div className="d-flex align-items-center">
-                                            {[1, 2, 3, 4, 5].map((star) => (
-                                                <Star
-                                                    key={star}
-                                                    size={32}
-                                                    className="me-2"
-                                                    style={{
-                                                        color: star <= feedbackRating ? wfColors.secondary : wfColors.border,
-                                                        fill: star <= feedbackRating ? wfColors.secondary : 'transparent',
-                                                        cursor: 'pointer'
-                                                    }}
-                                                    onClick={() => setFeedbackRating(star)}
-                                                />
-                                            ))}
-                                            <span className="ms-3 text-muted">
-                                                {feedbackRating > 0 && (
-                                                    <>
-                                                        {feedbackRating} of 5 stars
-                                                        {feedbackRating === 1 && ' - Poor'}
-                                                        {feedbackRating === 2 && ' - Fair'}
-                                                        {feedbackRating === 3 && ' - Good'}
-                                                        {feedbackRating === 4 && ' - Very Good'}
-                                                        {feedbackRating === 5 && ' - Excellent'}
-                                                    </>
-                                                )}
-                                            </span>
-                                        </div>
-                                    </Form.Group>
-
-                                    {/* Comment Section */}
-                                    <Form.Group className="mb-4">
-                                        <Form.Label className="fw-bold">
-                                            Please provide specific feedback about the analysis:
-                                        </Form.Label>
-                                        <Form.Control
-                                            as="textarea"
-                                            rows={5}
-                                            placeholder="Share your thoughts on the analysis accuracy, missing elements, suggestions for improvement, or any other feedback..."
-                                            value={feedbackComment}
-                                            onChange={(e) => setFeedbackComment(e.target.value)}
-                                            style={{ borderColor: wfColors.border }}
-                                        />
-                                        <Form.Text className="text-muted">
-                                            Your feedback helps us improve our AI analysis capabilities.
-                                        </Form.Text>
-                                    </Form.Group>
-
-                                    {/* Analysis Summary for Reference */}
-                                    <div className="p-3 rounded" style={{ backgroundColor: wfColors.light }}>
-                                        <h6 className="fw-bold mb-2">Analysis Summary (for reference):</h6>
-                                        <p className="small mb-1">
-                                            <strong>Compliance Status:</strong> {analysisResults?.NHA_Compliance_Assessment?.Compliance_Flag}
-                                        </p>
-                                        <p className="small mb-1">
-                                            <strong>Evidence Files:</strong> {files.length} files analyzed
-                                        </p>
-                                        <p className="small mb-0">
-                                            <strong>Analysis Date:</strong> {new Date().toLocaleDateString()}
-                                        </p>
-                                    </div>
-                                </Form>
-                            </Modal.Body>
-                            <Modal.Footer style={{ backgroundColor: wfColors.light }}>
-                                <Button
-                                    variant="outline-secondary"
-                                    onClick={() => setShowFeedbackModal(false)}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    style={primaryButtonStyle}
-                                    onClick={handleSubmitFeedback}
-                                    disabled={!feedbackComment.trim() || feedbackRating === 0}
-                                >
-                                    <CheckCircle size={16} className="me-2" />
-                                    Submit Feedback
-                                </Button>
-                            </Modal.Footer>
-                        </Modal>
                     </Col>
                 </Row>
             </Container>
