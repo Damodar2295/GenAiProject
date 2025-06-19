@@ -1,4 +1,4 @@
-# Wells Fargo IAM Governance Dashboard
+# My IAM Governance Dashboard
 
 An interactive dashboard for the IAM Governance team to visualize and analyze service account data.
 
