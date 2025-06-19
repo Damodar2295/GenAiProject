@@ -1,0 +1,128 @@
+# IAM Evidence Analysis Prompts Configuration
+# This file contains prompts used for analyzing IAM compliance evidence
+
+system_prompt: |
+  You are an expert IAM compliance analyst specializing in Non-Human Account (NHA) assessments for Wells Fargo. 
+  Analyze the provided evidence images for compliance with Wells Fargo IAM policies, specifically focusing on:
+  - eSAR inventory requirements and documentation
+  - Password complexity policies (ISCR-315-01 compliance)
+  - Password rotation policies and enforcement
+  - Account management practices and controls
+  - Non-human account identification and tracking
+  
+  Provide detailed, accurate, and actionable analysis results.
+
+analysis_prompt: |
+  Analyze this evidence image for IAM compliance assessment. Please provide a comprehensive analysis including:
+  
+  1. **Detailed Observation**: Describe exactly what you see in the image, including:
+     - Type of system or interface shown
+     - Account information visible
+     - Configuration settings displayed
+     - Policy settings or rules shown
+     - Any relevant data or metrics
+  
+  2. **Relevance Assessment**: Explain how this evidence relates to NHA compliance requirements:
+     - Which specific IAM policy or requirement it addresses
+     - How it supports or contradicts compliance objectives
+     - What compliance aspect it demonstrates
+  
+  3. **Compliance Analysis**: Determine the compliance status:
+     - Compliant: Meets all requirements
+     - Non-Compliant: Fails to meet requirements
+     - Partially Compliant: Meets some but not all requirements
+  
+  4. **Specific Findings**: Identify:
+     - What compliance requirements are satisfied
+     - What requirements are missing or not met
+     - Any potential risks or concerns
+     - Recommendations for improvement
+  
+  Please be specific and provide evidence-based analysis.
+
+evidence_types:
+  nha_evidence:
+    name: "General NHA Evidence"
+    description: "Screenshots or documentation showing non-human accounts in systems"
+    requirements:
+      - "Account identification and classification"
+      - "Service account inventory"
+      - "Account ownership and purpose documentation"
+  
+  esar_inventory:
+    name: "eSAR Inventory Documentation"
+    description: "Enterprise Service Account Repository inventory records"
+    requirements:
+      - "All NHAs registered in eSAR"
+      - "Required metadata fields completed"
+      - "Regular review and updates"
+      - "Proper categorization and tagging"
+  
+  password_complexity:
+    name: "Password Complexity Configuration"
+    description: "Password policy settings and complexity requirements"
+    requirements:
+      - "Minimum 16 character length (ISCR-315-01)"
+      - "Character composition requirements"
+      - "Complexity validation enabled"
+      - "Policy enforcement mechanisms"
+  
+  password_rotation:
+    name: "Password Rotation Evidence"
+    description: "Logs and documentation of password rotation activities"
+    requirements:
+      - "Regular password rotation schedule"
+      - "Automated rotation where possible"
+      - "Rotation tracking and logging"
+      - "Exception handling procedures"
+  
+  password_suspension:
+    name: "Account Lockout Policies"
+    description: "Account suspension and lockout policy documentation"
+    requirements:
+      - "Failed login attempt thresholds"
+      - "Account lockout duration settings"
+      - "Unlock procedures and authorization"
+      - "Monitoring and alerting capabilities"
+
+compliance_criteria:
+  iscr_315_01:
+    name: "ISCR-315-01 Password Construction"
+    requirements:
+      - "Minimum 16 characters"
+      - "At least 3 different character types"
+      - "No dictionary words or common patterns"
+      - "Regular password changes"
+  
+  esar_requirements:
+    name: "eSAR Registration Requirements"
+    requirements:
+      - "All service accounts registered"
+      - "Owner identification and contact info"
+      - "Business justification documented"
+      - "Regular review and validation"
+  
+  nha_identification:
+    name: "Non-Human Account Identification"
+    requirements:
+      - "Clear identification of NHAs"
+      - "Proper naming conventions"
+      - "Categorization and tagging"
+      - "Separation from human accounts"
+
+response_format:
+  observation: "Detailed description of what is visible in the evidence"
+  relevance: "Explanation of how this evidence relates to IAM compliance"
+  analysis: "Comprehensive analysis of compliance status and findings"
+  compliance_status: "Overall compliance assessment (Compliant/Non-Compliant/Partially Compliant)"
+  recommendations: "Specific recommendations for improvement or next steps"
+  confidence_level: "Assessment confidence (High/Medium/Low)"
+
+quality_guidelines:
+  - "Be specific and detailed in observations"
+  - "Reference specific policy requirements"
+  - "Provide actionable recommendations"
+  - "Use clear, professional language"
+  - "Focus on factual analysis over assumptions"
+  - "Consider security implications"
+  - "Maintain objectivity and accuracy" 
