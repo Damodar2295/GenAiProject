@@ -288,15 +288,29 @@ const FullVendorAnalysis: React.FC = () => {
     };
 
     const getQualityBadgeClass = (quality: string) => {
-        return wellsFargoTheme.qualityClasses[quality as keyof typeof wellsFargoTheme.qualityClasses] || 'wf-badge';
+        const qualityClasses = {
+            'ADEQUATE': styles.badgeAdequate,
+            'INADEQUATE': styles.badgeInadequate,
+            'NEEDS_REVIEW': styles.badgeNeedsReview
+        };
+        return qualityClasses[quality as keyof typeof qualityClasses] || styles.badge;
     };
 
     const getAnswerBadgeClass = (answer: string) => {
-        return wellsFargoTheme.answerClasses[answer as keyof typeof wellsFargoTheme.answerClasses] || 'wf-badge';
+        const answerClasses = {
+            'YES': styles.badgeYes,
+            'NO': styles.badgeNo,
+            'PARTIAL': styles.badgePartial
+        };
+        return answerClasses[answer as keyof typeof answerClasses] || styles.badge;
     };
 
     const getStatusBadgeClass = (status: 'success' | 'error') => {
-        return wellsFargoTheme.statusClasses[status] || 'wf-badge';
+        const statusClasses = {
+            'success': styles.badgeSuccess,
+            'error': styles.badgeError
+        };
+        return statusClasses[status] || styles.badge;
     };
 
     return (
@@ -502,12 +516,12 @@ const FullVendorAnalysis: React.FC = () => {
                                                     <strong>Q: </strong>{item.question}
                                                 </td>
                                                 <td>
-                                                    <span className={styles[`badge${item.answer}`]}>
+                                                    <span className={getAnswerBadgeClass(item.answer)}>
                                                         {item.answer}
                                                     </span>
                                                 </td>
                                                 <td>
-                                                    <span className={styles[`badge${item.quality}`]}>
+                                                    <span className={getQualityBadgeClass(item.quality)}>
                                                         {item.quality}
                                                     </span>
                                                 </td>
@@ -539,7 +553,7 @@ const FullVendorAnalysis: React.FC = () => {
                                                         <tr>
                                                             <td className={`fw-bold ${styles.tableHeader}`}>Answer:</td>
                                                             <td>
-                                                                <span className={styles[`badge${item.answer}`]}>
+                                                                <span className={getAnswerBadgeClass(item.answer)}>
                                                                     {item.answer}
                                                                 </span>
                                                             </td>
@@ -547,7 +561,7 @@ const FullVendorAnalysis: React.FC = () => {
                                                         <tr>
                                                             <td className={`fw-bold ${styles.tableHeader}`}>Quality:</td>
                                                             <td>
-                                                                <span className={styles[`badge${item.quality}`]}>
+                                                                <span className={getQualityBadgeClass(item.quality)}>
                                                                     {item.quality}
                                                                 </span>
                                                             </td>
