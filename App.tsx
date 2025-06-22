@@ -1,5 +1,4 @@
 import React, { useRef, useState } from "react";
-import { ExcelProcessor, ZipProcessResult } from "./utils/ExcelProcessor";
 import { generateMockReport, ReportItem, wellsFargoTheme } from "./utils/generate_report";
 import { processZipFile } from "./services/zipFileProcessor";
 import { processControlsWithEvidence } from "./services/evidenceService";
@@ -20,38 +19,79 @@ interface ProcessingProgress {
     phase: 'zip_processing' | 'llm_processing' | 'complete';
 }
 
-const App: React.FC = () => {
+const FullVendorAnalysis: React.FC = () => {
     const zipFileRef = useRef<HTMLInputElement>(null);
 
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<ZipProcessResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [report, setReport] = useState<EnhancedReportItem[]>([]);
     const [showReport, setShowReport] = useState(false);
     const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
     const [zipUploaded, setZipUploaded] = useState(false);
     const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
+    const [zipContents, setZipContents] = useState<{ folders: Array<{ name: string, contents: Array<{ fileName: string, type: string, extension?: string }> }> }>({ folders: [] });
 
     const handleZipFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const zipFile = event.target.files?.[0];
         if (!zipFile) {
             setZipUploaded(false);
-            setResult(null);
+            setZipContents({ folders: [] });
             return;
         }
 
         try {
-            // Process ZIP file immediately to show contents
-            const processor = new ExcelProcessor();
-            const processResult = await processor.processZipFile(zipFile);
-            setResult(processResult);
+            // Process ZIP file to show contents
+            const result = await processZipFile(zipFile);
+
+            // Validate folder structure and file requirements
+            const validationErrors: string[] = [];
+
+            // Check if there are any controls/folders
+            if (result.controls.length === 0) {
+                throw new Error("No domain folders found in the ZIP file.");
+            }
+
+            // Validate each control/domain folder
+            result.controls.forEach(control => {
+                const hasPdf = control.evidences.some(evidence =>
+                    evidence.type.toLowerCase() === 'pdf'
+                );
+
+                if (!hasPdf) {
+                    validationErrors.push(`Domain folder "${control.controlName}" must contain at least one PDF file.`);
+                }
+
+                // Check if evidences are directly in the domain folder
+                if (control.evidences.length === 0) {
+                    validationErrors.push(`Domain folder "${control.controlName}" must contain evidence files.`);
+                }
+            });
+
+            if (validationErrors.length > 0) {
+                throw new Error("Validation errors:\n" + validationErrors.join("\n"));
+            }
+
+            // Update ZIP contents display with both PDFs and images
+            const processedFolders = result.controls.map(control => ({
+                name: control.controlName,
+                contents: control.evidences.map(evidence => {
+                    const fileType = evidence.type.toLowerCase();
+                    return {
+                        fileName: evidence.name,
+                        type: fileType,
+                        extension: fileType
+                    };
+                })
+            }));
+
+            setZipContents({ folders: processedFolders });
             setZipUploaded(true);
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to process zip file.");
             console.error(err);
             setZipUploaded(false);
-            setResult(null);
+            setZipContents({ folders: [] });
         }
     };
 
@@ -76,20 +116,19 @@ const App: React.FC = () => {
 
             if (zipResult.errors.length > 0) {
                 console.warn('ZIP processing errors:', zipResult.errors);
-                // Continue processing even with some errors
             }
 
             if (zipResult.controls.length === 0) {
-                throw new Error('No valid control folders found in ZIP file');
+                throw new Error('No valid domain folders found in ZIP file');
             }
 
-            console.log(`Found ${zipResult.controls.length} controls to process`);
+            console.log(`Found ${zipResult.controls.length} domains to process`);
 
             // Phase 2: Sequential LLM Processing
             setProcessingProgress({
                 current: 0,
                 total: zipResult.controls.length,
-                currentControl: 'Starting LLM analysis...',
+                currentControl: 'Starting evidence analysis...',
                 phase: 'llm_processing'
             });
 
@@ -98,11 +137,20 @@ const App: React.FC = () => {
                 zipResult.controls.map(control => ({
                     cid: control.cid,
                     controlName: control.controlName,
-                    evidences: control.evidences.map(evidence => ({
-                        base64: evidence.base64,
-                        name: evidence.name,
-                        type: evidence.type
-                    }))
+                    evidences: control.evidences
+                        .filter(evidence => {
+                            const type = evidence.type.toLowerCase();
+                            return type === 'pdf' ||
+                                type === 'jpg' ||
+                                type === 'jpeg' ||
+                                type === 'png' ||
+                                type === 'gif';
+                        })
+                        .map(evidence => ({
+                            base64: evidence.base64,
+                            name: evidence.name,
+                            type: evidence.type
+                        }))
                 })),
                 (progressUpdate) => {
                     setProcessingProgress({
@@ -114,7 +162,7 @@ const App: React.FC = () => {
                 }
             );
 
-            console.log(`LLM processing completed. Results: ${processedResult.results.length}`);
+            console.log(`Evidence processing completed. Results: ${processedResult.results.length}`);
 
             // Phase 3: Transform results to match existing ReportItem interface
             processedResult.results.forEach((result, index) => {
@@ -138,18 +186,12 @@ const App: React.FC = () => {
                     source: `Control: ${control?.controlName || 'Unknown'}`,
                     summary: `${result.status === 'success' ? 'Successfully processed' : 'Processing failed'} for ${result.designElementId}`,
                     reference: `CID: ${result.controlId}, Element: ${result.designElementId}`,
-                    // Enhanced fields
                     controlId: result.controlId,
                     designElementId: result.designElementId,
                     status: result.status,
                     processingError: result.error
                 });
             });
-
-            // Add processing summary
-            if (processedResult.errors.length > 0) {
-                console.warn('Processing errors:', processedResult.errors);
-            }
 
             setProcessingProgress({
                 current: zipResult.controls.length,
@@ -234,10 +276,10 @@ const App: React.FC = () => {
     const startOver = () => {
         setReport([]);
         setShowReport(false);
-        setResult(null);
         setError(null);
         setLoading(false);
         setZipUploaded(false);
+        setZipContents({ folders: [] });
         if (zipFileRef.current) zipFileRef.current.value = '';
     };
 
@@ -295,7 +337,7 @@ const App: React.FC = () => {
                                                             ✓ ZIP file uploaded successfully
                                                         </span>
                                                     ) : (
-                                                        <span>Upload ZIP File</span>
+                                                        <span>Upload ZIP File with PDF Evidence</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -303,7 +345,7 @@ const App: React.FC = () => {
                                     </div>
                                 </div>
                                 <small className="form-text text-muted text-center d-block">
-                                    Upload a zip file containing vendor questionnaire and evidence files
+                                    Upload a zip file with domain folders. Each folder must contain at least one PDF file and can include image files (JPG, PNG, GIF)
                                 </small>
                             </div>
                         </div>
@@ -351,7 +393,7 @@ const App: React.FC = () => {
                                         <div className="mt-2">
                                             <small className="text-info">
                                                 <i className="bi bi-info-circle me-1"></i>
-                                                Processing controls sequentially - each control and design element is analyzed one at a time for accurate results.
+                                                Processing PDF evidence files sequentially - each control and design element is analyzed one at a time for accurate results.
                                             </small>
                                         </div>
                                     )}
@@ -373,17 +415,17 @@ const App: React.FC = () => {
                                 <div className="spinner-border spinner-border-sm me-2" role="status">
                                     <span className="visually-hidden">Loading...</span>
                                 </div>
-                                LLM is analysing the data and generating the report...
+                                Analyzing evidence files...
                             </div>
                         ) : (
-                            "Process ZIP File & Generate Report"
+                            "Process Evidence Files & Generate Report"
                         )}
                     </button>
                 </div>
             </div>
 
-            {/* ZIP Contents Display - Show immediately after upload, hide during report generation */}
-            {result && zipUploaded && !showReport && (
+            {/* ZIP Contents Display */}
+            {zipContents.folders.length > 0 && !showReport && (
                 <div className={wellsFargoTheme.classes.contentCard}>
                     <div className={wellsFargoTheme.classes.contentHeader}>
                         <h5 className={`mb-0 ${wellsFargoTheme.classes.tableHeader}`}>
@@ -391,31 +433,24 @@ const App: React.FC = () => {
                         </h5>
                     </div>
                     <div className="card-body">
-                        {result.zipContents.folders.length > 0 ? (
-                            <div>
-                                {result.zipContents.folders.map((folder, index) => (
-                                    <div key={index} className="mb-3">
-                                        <strong className={wellsFargoTheme.classes.primaryText}>
-                                            📂 {folder.name}
-                                        </strong>
-                                        {folder.contents.length > 0 && (
-                                            <ul className="ms-3 mt-2">
-                                                {folder.contents.map((file, idx) => (
-                                                    <li key={idx} className={wellsFargoTheme.classes.tableHeader}>
-                                                        {file.type === 'pdf' && '📕 '}
-                                                        {file.type === 'excel' && '📊 '}
-                                                        {file.type === 'other' && '📄 '}
-                                                        {file.fileName} {file.extension && `(${file.extension})`}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                    </div>
-                                ))}
+                        {zipContents.folders.map((folder, index) => (
+                            <div key={index} className="mb-3">
+                                <strong className={wellsFargoTheme.classes.primaryText}>
+                                    📂 {folder.name}
+                                </strong>
+                                {folder.contents.length > 0 && (
+                                    <ul className="ms-3 mt-2">
+                                        {folder.contents.map((file, idx) => (
+                                            <li key={idx} className={wellsFargoTheme.classes.tableHeader}>
+                                                {file.type === 'pdf' && '📕 '}
+                                                {['jpg', 'jpeg', 'png', 'gif'].includes(file.type) && '🖼️ '}
+                                                {file.fileName}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
                             </div>
-                        ) : (
-                            <p className="text-muted">No folders found in the ZIP file.</p>
-                        )}
+                        ))}
                     </div>
                 </div>
             )}
@@ -436,7 +471,7 @@ const App: React.FC = () => {
                                 onClick={downloadExcel}
                                 className="btn wf-success-bg"
                             >
-                                Download Excel
+                                Download CSV
                             </button>
                             <button
                                 onClick={startOver}
@@ -544,4 +579,4 @@ const App: React.FC = () => {
     );
 };
 
-export default App;
+export default FullVendorAnalysis;
