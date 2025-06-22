@@ -6,6 +6,7 @@ export interface ExtractedFile {
     content: ArrayBuffer;
     type: 'pdf' | 'other';
     base64: string;
+    fullPath?: string;
 }
 
 export interface ControlEvidence {
@@ -18,6 +19,24 @@ export interface ProcessedZipResult {
     controls: ControlEvidence[];
     totalFiles: number;
     totalControls: number;
+    errors: string[];
+}
+
+// New interfaces for domain mapping functionality
+interface DomainMapping {
+    domain_id: string;  // This will store Domain_Code
+    domain_name: string;  // This will store Domain_Name
+}
+
+interface DomainToFilesMap {
+    domainId: string;
+    domainName: string;
+    files: string[];
+}
+
+export interface DomainMappingResult {
+    mappings: Record<string, string[]>;  // domain_id -> file names
+    unmappedDomains: string[];           // domain names that couldn't be mapped
     errors: string[];
 }
 
@@ -35,99 +54,55 @@ interface DomainItem {
 const domain_list = (domainListModule as any).default || domainListModule as unknown as DomainItem[];
 
 // Cache for domain mappings to avoid repeated processing
-let domainMappingCache: Record<string, string> | null = null;
+let domainMappingCache: Map<string, DomainMapping> | null = null;
 
 /**
  * Loads domain mappings from imported domain_list.json
+ * Returns a Map of normalized domain names to their domain mappings
  */
-function loadDomainMappings(): Record<string, string> {
+function loadDomainMappings(): Map<string, DomainMapping> {
     if (domainMappingCache) {
         return domainMappingCache;
     }
 
     try {
-        const mappings: Record<string, string> = {};
+        const mappings = new Map<string, DomainMapping>();
+        const domainList = (domainListModule as any).default || domainListModule;
 
-        domain_list.forEach((domain: DomainItem) => {
-            // Create multiple mapping variations for flexibility
-            const domainName = domain.Domain_Name.toLowerCase();
-            const domainCode = domain.Domain_Code;
+        if (!Array.isArray(domainList)) {
+            throw new Error('Domain list is not an array');
+        }
 
-            // Map normalized domain name to domain code
-            const normalizedName = normalizeControlName(domainName);
-            mappings[normalizedName] = domainCode;
-
-            // Also map common variations
-            // Business Continuity -> business_continuity, bc, bcp
-            if (domainName.includes('business continuity')) {
-                mappings['business_continuity'] = domainCode;
-                mappings['bc'] = domainCode;
-                mappings['bcp'] = domainCode;
-                mappings['business_continuity_plan'] = domainCode;
+        domainList.forEach((domain: DomainItem) => {
+            if (!domain || !domain.Domain_Name || !domain.Domain_Code) {
+                console.warn('Invalid domain item:', domain);
+                return;
             }
 
-            // Cloud Computing -> cloud_computing, cloud
-            if (domainName.includes('cloud')) {
-                mappings['cloud_computing'] = domainCode;
-                mappings['cloud'] = domainCode;
-                mappings['cloud_security'] = domainCode;
-            }
-
-            // Change Management -> change_management, change, cm
-            if (domainName.includes('change')) {
-                mappings['change_management'] = domainCode;
-                mappings['change'] = domainCode;
-                mappings['cm'] = domainCode;
-            }
-
-            // Data Loss Prevention -> data_loss_prevention, dlp
-            if (domainName.includes('data loss')) {
-                mappings['data_loss_prevention'] = domainCode;
-                mappings['dlp'] = domainCode;
-            }
-
-            // Enterprise Data Management -> enterprise_data_management, edm, data_management
-            if (domainName.includes('enterprise data')) {
-                mappings['enterprise_data_management'] = domainCode;
-                mappings['edm'] = domainCode;
-                mappings['data_management'] = domainCode;
-                mappings['data_classification'] = domainCode;
-            }
-
-            // Add common security control mappings
-            if (domainName.includes('access')) {
-                mappings['access_control'] = domainCode;
-                mappings['authentication'] = domainCode;
-                mappings['authorization'] = domainCode;
-            }
+            const mapping: DomainMapping = {
+                domain_id: domain.Domain_Code,
+                domain_name: domain.Domain_Name
+            };
+            const normalizedName = normalizeDomainName(domain.Domain_Name);
+            mappings.set(normalizedName, mapping);
         });
 
         // Store in cache
         domainMappingCache = mappings;
+        console.log('Loaded domain mappings:', Array.from(mappings.keys()));
         return mappings;
 
     } catch (error) {
         console.error('Failed to load domain mappings:', error);
-        // Fallback to basic mappings if processing fails
-        return {
-            'business_continuity': 'BC001',
-            'cloud_computing': 'CC001',
-            'change_management': 'CM001',
-            'data_loss_prevention': 'DLP001',
-            'enterprise_data_management': 'EDM001'
-        };
+        return new Map();
     }
 }
 
 /**
- * Normalizes folder names to match control mapping keys
+ * Normalizes domain names for consistent comparison
  */
-function normalizeControlName(folderName: string): string {
-    return folderName
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^_|_$/g, '');
+function normalizeDomainName(name: string): string {
+    return name.toLowerCase().trim();
 }
 
 /**
@@ -155,8 +130,9 @@ function getFileType(fileName: string): 'pdf' | 'other' {
  */
 function mapControlNameToCID(controlName: string): string | null {
     const mappings = loadDomainMappings();
-    const normalizedName = normalizeControlName(controlName);
-    return mappings[normalizedName] || null;
+    const normalizedName = normalizeDomainName(controlName);
+    const mapping = mappings.get(normalizedName);
+    return mapping ? mapping.domain_id : null;
 }
 
 /**
@@ -171,38 +147,75 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
     };
 
     try {
+        console.log('Starting ZIP file processing...');
         const zip = new JSZip();
         const zipContent = await zip.loadAsync(zipFile);
 
-        // Group files by folder (control)
-        const controlFolders: Record<string, JSZip.JSZipObject[]> = {};
+        console.log('ZIP file loaded successfully');
 
-        zipContent.forEach((relativePath, zipEntry) => {
-            if (!zipEntry.dir && relativePath.includes('/')) {
-                const folderName = relativePath.split('/')[0];
-                if (!controlFolders[folderName]) {
-                    controlFolders[folderName] = [];
+        // Get all files and folders
+        const allPaths = Object.keys(zip.files);
+        console.log('All files in ZIP:', allPaths);
+
+        // Find the root folder name (assuming there's only one root folder)
+        const rootFolders = allPaths
+            .filter(path => {
+                const parts = path.split('/').filter(Boolean);
+                return parts.length === 1 && zip.files[path].dir;
+            })
+            .map(path => path.replace('/', ''));
+
+        if (rootFolders.length === 0) {
+            throw new Error('No root folder found in ZIP file');
+        }
+
+        const rootFolder = rootFolders[0];
+        console.log('Found root folder:', rootFolder);
+
+        // Find domain folders (subfolders within the root folder)
+        const domainFolders = allPaths
+            .filter(path => {
+                const parts = path.split('/').filter(Boolean);
+                return parts.length === 2 && // Two levels deep (root/domain/)
+                    parts[0] === rootFolder && // Must be in root folder
+                    zip.files[path].dir; // Must be a directory
+            })
+            .map(path => {
+                const parts = path.split('/').filter(Boolean);
+                return parts[1]; // Return just the domain folder name
+            });
+
+        console.log('Found domain folders:', domainFolders);
+
+        // Group files by their domain folder
+        const folderContents: Record<string, string[]> = {};
+
+        allPaths.filter(path => !zip.files[path].dir).forEach(filePath => {
+            const parts = filePath.split('/').filter(Boolean);
+            if (parts.length === 3 && parts[0] === rootFolder) {
+                // File is in a domain folder
+                const domainFolder = parts[1];
+                if (!folderContents[domainFolder]) {
+                    folderContents[domainFolder] = [];
                 }
-                controlFolders[folderName].push(zipEntry);
+                folderContents[domainFolder].push(filePath);
             }
         });
 
-        // Process each control folder
-        for (const [folderName, files] of Object.entries(controlFolders)) {
-            const cid = mapControlNameToCID(folderName);
+        console.log('Files grouped by domain folder:', folderContents);
 
-            if (!cid) {
-                result.errors.push(`Unable to map folder "${folderName}" to a Control ID. Available mappings are loaded from domain_list.json`);
-                continue;
-            }
-
+        // Process each domain folder and its contents
+        for (const [folderName, folderFiles] of Object.entries(folderContents)) {
+            console.log(`Processing domain folder: ${folderName}`);
             const evidences: ExtractedFile[] = [];
 
-            // Process files in this control folder
-            for (const file of files) {
+            // Process each file in the folder
+            for (const filePath of folderFiles) {
                 try {
+                    console.log(`Processing file: ${filePath}`);
+                    const file = zip.files[filePath];
                     const content = await file.async('arraybuffer');
-                    const fileName = file.name.split('/').pop() || file.name;
+                    const fileName = filePath.split('/').pop() || filePath;
                     const fileType = getFileType(fileName);
                     const base64 = arrayBufferToBase64(content);
 
@@ -210,29 +223,95 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
                         name: fileName,
                         content,
                         type: fileType,
-                        base64
+                        base64,
+                        fullPath: filePath
                     });
 
                     result.totalFiles++;
+                    console.log(`Successfully processed file: ${fileName} (Path: ${filePath})`);
                 } catch (error) {
-                    result.errors.push(`Failed to process file "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    const errorMsg = `Failed to process file ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                    console.error(errorMsg);
+                    result.errors.push(errorMsg);
+                }
+            }
+
+            if (evidences.length > 0) {
+                // Map the domain folder name to a domain ID
+                const mappings = loadDomainMappings();
+                const normalizedName = normalizeDomainName(folderName);
+                const domainMapping = mappings.get(normalizedName);
+
+                const cid = domainMapping ? domainMapping.domain_id : folderName;
+                const controlName = domainMapping ? domainMapping.domain_name : folderName;
+
+                result.controls.push({
+                    cid,
+                    controlName,
+                    evidences
+                });
+                result.totalControls++;
+                console.log(`Added domain folder ${folderName} with ${evidences.length} files, mapped to CID: ${cid}`);
+            }
+        }
+
+        // Handle loose files (files directly in root folder)
+        const looseFiles = allPaths.filter(path => {
+            const parts = path.split('/').filter(Boolean);
+            return !zip.files[path].dir && parts.length === 2 && parts[0] === rootFolder;
+        });
+
+        if (looseFiles.length > 0) {
+            console.log('Processing loose files in root folder:', looseFiles);
+            const evidences: ExtractedFile[] = [];
+
+            for (const filePath of looseFiles) {
+                try {
+                    const file = zip.files[filePath];
+                    const content = await file.async('arraybuffer');
+                    const fileName = filePath.split('/').pop() || filePath;
+                    const fileType = getFileType(fileName);
+                    const base64 = arrayBufferToBase64(content);
+
+                    evidences.push({
+                        name: fileName,
+                        content,
+                        type: fileType,
+                        base64,
+                        fullPath: filePath
+                    });
+
+                    result.totalFiles++;
+                    console.log(`Successfully processed loose file: ${fileName}`);
+                } catch (error) {
+                    console.error(`Error processing loose file ${filePath}:`, error);
+                    result.errors.push(`Failed to process file "${filePath}": ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
             }
 
             if (evidences.length > 0) {
                 result.controls.push({
-                    cid,
-                    controlName: folderName,
+                    cid: rootFolder,
+                    controlName: 'Root Files',
                     evidences
                 });
                 result.totalControls++;
+                console.log(`Added ${evidences.length} loose files from root folder`);
             }
         }
+
+        console.log('Final processing result:', {
+            totalControls: result.totalControls,
+            totalFiles: result.totalFiles,
+            errors: result.errors
+        });
 
         return result;
 
     } catch (error) {
-        result.errors.push(`Failed to process zip file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const errorMsg = `Failed to process ZIP file: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        console.error(errorMsg);
+        result.errors.push(errorMsg);
         return result;
     }
 }
@@ -281,62 +360,144 @@ export async function validateZipStructure(zipFile: File): Promise<{ isValid: bo
 }
 
 /**
- * Gets available control mappings for reference
+ * Returns a record of domain mappings for control validation
  */
 export function getAvailableControlMappings(): Record<string, string> {
-    return loadDomainMappings();
+    const mappings = loadDomainMappings();
+    const record: Record<string, string> = {};
+    mappings.forEach((value: DomainMapping, key: string) => {
+        record[key] = value.domain_id;
+    });
+    return record;
 }
 
 /**
- * Debug utility: Get expected folder names for all domains
- * This helps users understand what folder names should be used in ZIP files
+ * Returns expected folder names for validation
  */
 export function getExpectedFolderNames(): Array<{ domainCode: string, domainName: string, expectedFolderNames: string[] }> {
+    const mappings = loadDomainMappings();
+    const result: Array<{ domainCode: string, domainName: string, expectedFolderNames: string[] }> = [];
+
+    mappings.forEach((mapping, key) => {
+        const expectedNames: string[] = [];
+        const domainName = mapping.domain_name;
+
+        // Add the normalized domain name
+        expectedNames.push(normalizeDomainName(domainName));
+
+        result.push({
+            domainCode: mapping.domain_id,
+            domainName: domainName,
+            expectedFolderNames: expectedNames
+        });
+    });
+
+    return result;
+}
+
+/**
+ * New function to map domain folders to domain IDs
+ * This function focuses solely on mapping domains to their files
+ */
+export async function mapDomainsToDomainIds(zipFile: File): Promise<DomainMappingResult> {
+    const result: DomainMappingResult = {
+        mappings: {},
+        unmappedDomains: [],
+        errors: []
+    };
+
     try {
-        return domain_list.map((domain: DomainItem) => {
-            const domainName = domain.Domain_Name.toLowerCase();
-            const expectedNames: string[] = [];
+        console.log('Starting domain mapping process...');
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(zipFile);
 
-            // Add the normalized domain name
-            expectedNames.push(normalizeControlName(domainName));
+        // Load domain mappings
+        const domainMappings = loadDomainMappings();
 
-            // Add common variations based on domain type
-            if (domainName.includes('business continuity')) {
-                expectedNames.push('business_continuity', 'bc', 'bcp', 'business_continuity_plan');
+        // Get all paths in the ZIP
+        const allPaths = Object.keys(zip.files);
+
+        // Find the root folder name (assuming there's only one root folder)
+        const rootFolders = allPaths
+            .filter(path => {
+                const parts = path.split('/').filter(Boolean);
+                return parts.length === 1 && zip.files[path].dir;
+            })
+            .map(path => path.replace('/', ''));
+
+        if (rootFolders.length === 0) {
+            throw new Error('No root folder found in ZIP file');
+        }
+
+        const rootFolder = rootFolders[0];
+        console.log('Found root folder:', rootFolder);
+
+        // Find domain folders (subfolders within the root folder)
+        const domainFolders = allPaths
+            .filter(path => {
+                const parts = path.split('/').filter(Boolean);
+                return parts.length === 2 && // Two levels deep (root/domain/)
+                    parts[0] === rootFolder && // Must be in root folder
+                    zip.files[path].dir; // Must be a directory
+            })
+            .map(path => {
+                const parts = path.split('/').filter(Boolean);
+                return parts[1]; // Return just the domain folder name
+            });
+
+        console.log('Found domain folders:', domainFolders);
+
+        // Process each domain folder
+        for (const folderName of domainFolders) {
+            const normalizedDomainName = normalizeDomainName(folderName);
+            const domainMapping = domainMappings.get(normalizedDomainName);
+
+            if (!domainMapping) {
+                console.warn(`Domain "${folderName}" not found in domain mappings`);
+                result.unmappedDomains.push(folderName);
+                continue;
             }
 
-            if (domainName.includes('cloud')) {
-                expectedNames.push('cloud_computing', 'cloud', 'cloud_security');
+            // Get PDF files in this domain folder
+            const domainFiles = allPaths.filter(path => {
+                const parts = path.split('/').filter(Boolean);
+                return !zip.files[path].dir && // Not a directory
+                    parts.length === 3 && // Three levels deep (root/domain/file.pdf)
+                    parts[0] === rootFolder && // Must be in root folder
+                    parts[1] === folderName && // Must be in this domain folder
+                    path.toLowerCase().endsWith('.pdf'); // Only PDF files
+            }).map(path => path.split('/').pop() || path); // Get just the file names
+
+            if (domainFiles.length > 0) {
+                result.mappings[domainMapping.domain_id] = domainFiles;
+                console.log(`Mapped domain "${folderName}" (${domainMapping.domain_id}) to ${domainFiles.length} files`);
             }
+        }
 
-            if (domainName.includes('change')) {
-                expectedNames.push('change_management', 'change', 'cm');
-            }
-
-            if (domainName.includes('data loss')) {
-                expectedNames.push('data_loss_prevention', 'dlp');
-            }
-
-            if (domainName.includes('enterprise data')) {
-                expectedNames.push('enterprise_data_management', 'edm', 'data_management', 'data_classification');
-            }
-
-            if (domainName.includes('access')) {
-                expectedNames.push('access_control', 'authentication', 'authorization');
-            }
-
-            // Remove duplicates
-            const uniqueNames = [...new Set(expectedNames)];
-
-            return {
-                domainCode: domain.Domain_Code,
-                domainName: domain.Domain_Name,
-                expectedFolderNames: uniqueNames
-            };
+        // Log final results
+        console.log('Domain mapping complete:', {
+            mappedDomains: Object.keys(result.mappings).length,
+            unmappedDomains: result.unmappedDomains.length,
+            mappings: result.mappings
         });
 
+        return result;
+
     } catch (error) {
-        console.error('Failed to get expected folder names:', error);
+        const errorMsg = `Failed to map domains: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        console.error(errorMsg);
+        result.errors.push(errorMsg);
+        return result;
+    }
+}
+
+// Helper function to get domain mapping information
+export function getAvailableDomainMappings(): DomainMapping[] {
+    try {
+        const domainList = (domainListModule as any).default || domainListModule;
+        return domainList as DomainMapping[];
+    } catch (error) {
+        console.error('Failed to get domain mappings:', error);
         return [];
     }
 } 
