@@ -19,6 +19,35 @@ interface ProcessingProgress {
     phase: 'zip_processing' | 'llm_processing' | 'complete';
 }
 
+interface ProcessedFile {
+    name: string;
+    type: string;
+    base64: string;
+    fullPath?: string;
+}
+
+interface ProcessedZipResult {
+    controls: Array<{
+        cid: string;
+        controlName: string;
+        evidences: ProcessedFile[];
+    }>;
+    errors: string[];
+    files?: ProcessedFile[];
+}
+
+interface FileContent {
+    fileName: string;
+    type: string;
+    extension?: string;
+    fullPath?: string;
+}
+
+interface ProcessedFolder {
+    name: string;
+    contents: FileContent[];
+}
+
 const FullVendorAnalysis: React.FC = () => {
     const zipFileRef = useRef<HTMLInputElement>(null);
 
@@ -29,67 +58,128 @@ const FullVendorAnalysis: React.FC = () => {
     const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
     const [zipUploaded, setZipUploaded] = useState(false);
     const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
-    const [zipContents, setZipContents] = useState<{ folders: Array<{ name: string, contents: Array<{ fileName: string, type: string, extension?: string }> }> }>({ folders: [] });
+    const [zipContents, setZipContents] = useState<{ folders: ProcessedFolder[] }>({ folders: [] });
+    const [showZipContents, setShowZipContents] = useState(false);
+    const [isViewingContents, setIsViewingContents] = useState(false);
 
     const handleZipFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const zipFile = event.target.files?.[0];
         if (!zipFile) {
+            console.log('No file selected');
             setZipUploaded(false);
             setZipContents({ folders: [] });
             return;
         }
 
+        console.log('File selected:', {
+            name: zipFile.name,
+            size: zipFile.size,
+            type: zipFile.type
+        });
+
         try {
+            console.log('Starting ZIP file processing...');
             // Process ZIP file to show contents
-            const result = await processZipFile(zipFile);
+            const result = await processZipFile(zipFile) as ProcessedZipResult;
 
-            // Validate folder structure and file requirements
-            const validationErrors: string[] = [];
-
-            // Check if there are any controls/folders
-            if (result.controls.length === 0) {
-                throw new Error("No domain folders found in the ZIP file.");
-            }
-
-            // Validate each control/domain folder
-            result.controls.forEach(control => {
-                const hasPdf = control.evidences.some(evidence =>
-                    evidence.type.toLowerCase() === 'pdf'
-                );
-
-                if (!hasPdf) {
-                    validationErrors.push(`Domain folder "${control.controlName}" must contain at least one PDF file.`);
-                }
-
-                // Check if evidences are directly in the domain folder
-                if (control.evidences.length === 0) {
-                    validationErrors.push(`Domain folder "${control.controlName}" must contain evidence files.`);
-                }
+            console.log('ZIP processing result:', {
+                controlsCount: result.controls?.length || 0,
+                hasFiles: !!result.files,
+                filesCount: result.files?.length || 0,
+                errors: result.errors
             });
 
-            if (validationErrors.length > 0) {
-                throw new Error("Validation errors:\n" + validationErrors.join("\n"));
+            if (result.controls) {
+                console.log('Found controls:', result.controls.map(control => ({
+                    name: control.controlName,
+                    evidenceCount: control.evidences?.length || 0,
+                    evidenceTypes: control.evidences?.map(e => e.type)
+                })));
             }
 
-            // Update ZIP contents display with both PDFs and images
-            const processedFolders = result.controls.map(control => ({
-                name: control.controlName,
-                contents: control.evidences.map(evidence => {
-                    const fileType = evidence.type.toLowerCase();
-                    return {
-                        fileName: evidence.name,
-                        type: fileType,
-                        extension: fileType
+            // Display all contents without validation
+            const processedFolders: ProcessedFolder[] = [];
+
+            // Process structured folders
+            if (result.controls && result.controls.length > 0) {
+                console.log('Processing structured folders...');
+                const folderResults = result.controls.map(control => {
+                    const folderContent = {
+                        name: control.controlName || 'Unnamed Folder',
+                        contents: control.evidences
+                            .filter(evidence => evidence.type.toLowerCase() === 'pdf' ||
+                                ['jpg', 'jpeg', 'png', 'gif'].includes(evidence.type.toLowerCase()))
+                            .map(evidence => ({
+                                fileName: evidence.name,
+                                type: evidence.type.toLowerCase(),
+                                extension: evidence.type.toLowerCase(),
+                                fullPath: evidence.fullPath
+                            }))
                     };
-                })
-            }));
+                    console.log(`Folder "${folderContent.name}" contains ${folderContent.contents.length} files`);
+                    return folderContent;
+                });
+                processedFolders.push(...folderResults);
+            } else {
+                console.log('No structured folders found in the ZIP');
+            }
+
+            // Handle any loose files
+            if (result.files && result.files.length > 0) {
+                console.log('Processing loose files...');
+                const looseFiles = result.files.filter(file =>
+                    file.type.toLowerCase() === 'pdf' ||
+                    ['jpg', 'jpeg', 'png', 'gif'].includes(file.type.toLowerCase())
+                );
+
+                console.log(`Found ${looseFiles.length} valid loose files`);
+
+                if (looseFiles.length > 0) {
+                    processedFolders.push({
+                        name: 'Other Files',
+                        contents: looseFiles.map(file => ({
+                            fileName: file.name,
+                            type: file.type.toLowerCase(),
+                            extension: file.type.toLowerCase(),
+                            fullPath: file.fullPath
+                        }))
+                    });
+                }
+            } else {
+                console.log('No loose files found in the ZIP');
+            }
+
+            // Sort folders alphabetically
+            processedFolders.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Sort files within each folder
+            processedFolders.forEach(folder => {
+                folder.contents.sort((a, b) => a.fileName.localeCompare(b.fileName));
+            });
+
+            console.log('Final processed structure:', {
+                totalFolders: processedFolders.length,
+                folders: processedFolders.map(f => ({
+                    name: f.name,
+                    fileCount: f.contents.length,
+                    files: f.contents.map(c => c.fileName)
+                }))
+            });
 
             setZipContents({ folders: processedFolders });
             setZipUploaded(true);
             setError(null);
+
+            console.log('ZIP contents successfully set to state');
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to process zip file.");
-            console.error(err);
+            console.error('Error processing ZIP file:', err);
+            if (err instanceof Error) {
+                console.error('Error details:', {
+                    message: err.message,
+                    stack: err.stack
+                });
+            }
+            setError("Failed to read ZIP file. Please ensure it's a valid ZIP archive.");
             setZipUploaded(false);
             setZipContents({ folders: [] });
         }
@@ -103,6 +193,7 @@ const FullVendorAnalysis: React.FC = () => {
         const processedReports: EnhancedReportItem[] = [];
 
         try {
+            console.log('Starting evidence processing...');
             // Phase 1: Extract and process ZIP file
             setProcessingProgress({
                 current: 0,
@@ -111,47 +202,92 @@ const FullVendorAnalysis: React.FC = () => {
                 phase: 'zip_processing'
             });
 
-            console.log('Starting ZIP file processing...');
-            const zipResult = await processZipFile(zipFile);
+            const zipResult = await processZipFile(zipFile) as ProcessedZipResult;
+            console.log('ZIP extraction complete:', {
+                controlsCount: zipResult.controls?.length || 0,
+                hasFiles: !!zipResult.files,
+                filesCount: zipResult.files?.length || 0
+            });
 
-            if (zipResult.errors.length > 0) {
-                console.warn('ZIP processing errors:', zipResult.errors);
+            // Prepare files for processing, whether they're in folders or not
+            type ProcessItem = {
+                cid: string;
+                controlName: string;
+                evidences: ProcessedFile[];
+            };
+
+            const itemsToProcess: ProcessItem[] = [];
+
+            // Process structured folders
+            if (zipResult.controls && zipResult.controls.length > 0) {
+                console.log('Processing controls/folders...');
+                const validControls = zipResult.controls.filter(control =>
+                    control.evidences && control.evidences.some(evidence =>
+                        evidence.type.toLowerCase() === 'pdf' ||
+                        ['jpg', 'jpeg', 'png', 'gif'].includes(evidence.type.toLowerCase())
+                    )
+                );
+
+                console.log(`Found ${validControls.length} valid controls with evidence files`);
+
+                if (validControls.length > 0) {
+                    itemsToProcess.push(...validControls.map(control => {
+                        const item = {
+                            cid: control.cid || control.controlName,
+                            controlName: control.controlName,
+                            evidences: control.evidences.filter(evidence =>
+                                evidence.type.toLowerCase() === 'pdf' ||
+                                ['jpg', 'jpeg', 'png', 'gif'].includes(evidence.type.toLowerCase())
+                            )
+                        };
+                        console.log(`Control "${control.controlName}" has ${item.evidences.length} valid evidence files`);
+                        return item;
+                    }));
+                }
             }
 
-            if (zipResult.controls.length === 0) {
-                throw new Error('No valid domain folders found in ZIP file');
+            // Process any loose files if no structured folders were found
+            if (itemsToProcess.length === 0 && zipResult.files && zipResult.files.length > 0) {
+                console.log('Processing loose files...');
+                const validFiles = zipResult.files.filter(file =>
+                    file.type.toLowerCase() === 'pdf' ||
+                    ['jpg', 'jpeg', 'png', 'gif'].includes(file.type.toLowerCase())
+                );
+
+                console.log(`Found ${validFiles.length} valid loose files`);
+
+                if (validFiles.length > 0) {
+                    itemsToProcess.push({
+                        cid: 'unstructured',
+                        controlName: 'Unstructured Files',
+                        evidences: validFiles
+                    });
+                }
             }
 
-            console.log(`Found ${zipResult.controls.length} domains to process`);
+            console.log('Items prepared for processing:', {
+                totalItems: itemsToProcess.length,
+                items: itemsToProcess.map(item => ({
+                    name: item.controlName,
+                    evidenceCount: item.evidences.length
+                }))
+            });
 
-            // Phase 2: Sequential LLM Processing
+            if (itemsToProcess.length === 0) {
+                throw new Error("No valid evidence files (PDFs or images) found in the ZIP archive. Please check the contents and try again.");
+            }
+
+            // Phase 2: Sequential Processing
             setProcessingProgress({
                 current: 0,
-                total: zipResult.controls.length,
+                total: itemsToProcess.length,
                 currentControl: 'Starting evidence analysis...',
                 phase: 'llm_processing'
             });
 
-            // Process controls with evidence through LLM sequentially
+            // Process files through LLM sequentially
             const processedResult = await processControlsWithEvidence(
-                zipResult.controls.map(control => ({
-                    cid: control.cid,
-                    controlName: control.controlName,
-                    evidences: control.evidences
-                        .filter(evidence => {
-                            const type = evidence.type.toLowerCase();
-                            return type === 'pdf' ||
-                                type === 'jpg' ||
-                                type === 'jpeg' ||
-                                type === 'png' ||
-                                type === 'gif';
-                        })
-                        .map(evidence => ({
-                            base64: evidence.base64,
-                            name: evidence.name,
-                            type: evidence.type
-                        }))
-                })),
+                itemsToProcess,
                 (progressUpdate) => {
                     setProcessingProgress({
                         current: progressUpdate.current,
@@ -164,28 +300,26 @@ const FullVendorAnalysis: React.FC = () => {
 
             console.log(`Evidence processing completed. Results: ${processedResult.results.length}`);
 
-            // Phase 3: Transform results to match existing ReportItem interface
+            // Transform results to match ReportItem interface
             processedResult.results.forEach((result, index) => {
-                const control = zipResult.controls.find(c => c.cid === result.controlId);
+                const item = itemsToProcess.find(i => i.cid === result.controlId);
 
-                // Map LLM result status to ReportItem answer format
                 const mappedAnswer: 'YES' | 'NO' | 'PARTIAL' = result.status === 'success'
                     ? (result.answer && result.answer.trim() ? 'YES' : 'PARTIAL')
                     : 'NO';
 
-                // Map status to quality format
                 const mappedQuality: 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW' = result.status === 'success'
                     ? 'ADEQUATE'
                     : 'INADEQUATE';
 
                 processedReports.push({
-                    id: result.designElementId,
+                    id: result.designElementId || `result-${index}`,
                     question: result.question,
                     answer: mappedAnswer,
                     quality: mappedQuality,
-                    source: `Control: ${control?.controlName || 'Unknown'}`,
+                    source: `Source: ${item?.controlName || 'Unknown'}`,
                     summary: `${result.status === 'success' ? 'Successfully processed' : 'Processing failed'} for ${result.designElementId}`,
-                    reference: `CID: ${result.controlId}, Element: ${result.designElementId}`,
+                    reference: `ID: ${result.controlId}, Element: ${result.designElementId}`,
                     controlId: result.controlId,
                     designElementId: result.designElementId,
                     status: result.status,
@@ -194,8 +328,8 @@ const FullVendorAnalysis: React.FC = () => {
             });
 
             setProcessingProgress({
-                current: zipResult.controls.length,
-                total: zipResult.controls.length,
+                current: itemsToProcess.length,
+                total: itemsToProcess.length,
                 currentControl: `Processing complete! ${processedResult.successCount} successful, ${processedResult.errorCount} errors`,
                 phase: 'complete'
             });
@@ -313,6 +447,101 @@ const FullVendorAnalysis: React.FC = () => {
         return statusClasses[status] || styles.badge;
     };
 
+    const handleViewZipContents = async () => {
+        if (!zipFileRef.current?.files?.[0]) {
+            setError("Please select a zip file first.");
+            return;
+        }
+
+        const zipFile = zipFileRef.current.files[0];
+        setIsViewingContents(true);
+        setError(null);
+
+        try {
+            console.log('Starting ZIP content viewing...');
+            console.log('File details:', {
+                name: zipFile.name,
+                size: zipFile.size,
+                type: zipFile.type
+            });
+
+            const result = await processZipFile(zipFile) as ProcessedZipResult;
+
+            console.log('ZIP extraction result:', {
+                controlsCount: result.controls?.length || 0,
+                hasFiles: !!result.files,
+                filesCount: result.files?.length || 0,
+                errors: result.errors
+            });
+
+            // Process and display the contents
+            const processedFolders: ProcessedFolder[] = [];
+
+            if (result.controls && result.controls.length > 0) {
+                console.log('Found controls:', result.controls);
+                result.controls.forEach(control => {
+                    console.log(`Processing control: ${control.controlName}`, {
+                        evidenceCount: control.evidences?.length || 0,
+                        evidences: control.evidences
+                    });
+                });
+
+                processedFolders.push(...result.controls.map(control => ({
+                    name: control.controlName || 'Unnamed Folder',
+                    contents: control.evidences.map(evidence => ({
+                        fileName: evidence.name,
+                        type: evidence.type.toLowerCase(),
+                        extension: evidence.type.toLowerCase(),
+                        fullPath: evidence.fullPath
+                    }))
+                })));
+            }
+
+            if (result.files && result.files.length > 0) {
+                console.log('Processing loose files:', result.files);
+                processedFolders.push({
+                    name: 'Other Files',
+                    contents: result.files.map(file => ({
+                        fileName: file.name,
+                        type: file.type.toLowerCase(),
+                        extension: file.type.toLowerCase(),
+                        fullPath: file.fullPath
+                    }))
+                });
+            }
+
+            // Sort everything
+            processedFolders.sort((a, b) => a.name.localeCompare(b.name));
+            processedFolders.forEach(folder => {
+                folder.contents.sort((a, b) => a.fileName.localeCompare(b.fileName));
+            });
+
+            console.log('Final processed structure:', {
+                totalFolders: processedFolders.length,
+                folders: processedFolders.map(f => ({
+                    name: f.name,
+                    fileCount: f.contents.length,
+                    files: f.contents.map(c => c.fileName)
+                }))
+            });
+
+            setZipContents({ folders: processedFolders });
+            setShowZipContents(true);
+            setZipUploaded(true);
+        } catch (err) {
+            console.error('Error viewing ZIP contents:', err);
+            if (err instanceof Error) {
+                console.error('Error details:', {
+                    message: err.message,
+                    stack: err.stack
+                });
+            }
+            setError("Failed to read ZIP contents. Please ensure it's a valid ZIP archive.");
+        } finally {
+            setIsViewingContents(false);
+        }
+    };
+
     return (
         <div className={`container-fluid ${styles.mainContainer}`}>
             <div className="text-center mb-4">
@@ -341,9 +570,12 @@ const FullVendorAnalysis: React.FC = () => {
                                         />
                                         <div className={styles.uploadArea}>
                                             <div className="d-flex align-items-center justify-content-center">
-                                                <svg className={styles.uploadIcon} viewBox="0 0 16 16">
-                                                    <path fillRule="evenodd" d="M4.406 1.342A5.53 5.53 0 0 1 8 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.5.5 0 0 1 0-1h2.688C13.979 10 15 8.988 15 7.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 2.825 10.328 1 8 1a4.53 4.53 0 0 0-2.941 1.1c-.757.652-1.153 1.438-1.153 2.055v.448l-.445.049C2.064 4.805 1 5.952 1 7.318 1 8.785 2.23 10 3.781 10H6a.5.5 0 0 1 0 1H3.781C1.708 11 0 9.366 0 7.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383" />
-                                                    <path fillRule="evenodd" d="M7.646 4.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 5.707V14.5a.5.5 0 0 1-1 0V5.707L5.354 7.854a.5.5 0 1 1-.708-.708z" />
+                                                <svg
+                                                    className={styles.uploadIcon}
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 16 16"
+                                                >
+                                                    <path d="M8 1a5.53 5.53 0 0 0-3.594 1.342c-.766.66-1.321 1.52-1.464 2.383C1.266 4.095 0 5.555 0 7.318 0 9.366 1.708 11 3.781 11H7.5V5.707L5.354 7.854a.5.5 0 1 1-.708-.708l3-3a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 5.707V11h4.188C14.502 11 16 9.57 16 7.773c0-1.636-1.242-2.969-2.834-3.194C12.923 2.01 10.69 0 8 0zm0 13v-2h1v2h-1z" />
                                                 </svg>
                                                 <div className={styles.uploadText}>
                                                     {zipUploaded ? (
@@ -372,56 +604,28 @@ const FullVendorAnalysis: React.FC = () => {
                     </div>
                 )}
 
-                {/* Enhanced Progress Display */}
-                {processingProgress && (
-                    <div className="row justify-content-center mb-4">
-                        <div className="col-md-8">
-                            <div className={styles.progressCard}>
-                                <div className="card-body">
-                                    <div className="d-flex justify-content-between align-items-center mb-3">
-                                        <h6 className="mb-0">
-                                            {processingProgress.phase === 'zip_processing' && '📁 Processing ZIP File'}
-                                            {processingProgress.phase === 'llm_processing' && '🤖 AI Analysis in Progress'}
-                                            {processingProgress.phase === 'complete' && '✅ Processing Complete'}
-                                        </h6>
-                                        <span className="badge bg-primary">
-                                            {processingProgress.current}/{processingProgress.total}
-                                        </span>
-                                    </div>
-                                    <div className="progress mb-2">
-                                        <div
-                                            className={`${styles.progressBar} ${processingProgress.phase === 'complete'
-                                                ? styles.progressBarSuccess
-                                                : styles.progressBarPrimary
-                                                }`}
-                                            role="progressbar"
-                                            style={{ width: `${(processingProgress.current / processingProgress.total) * 100}%` }}
-                                        ></div>
-                                    </div>
-                                    <small className="text-muted d-block">
-                                        <i className="bi bi-gear-fill me-1"></i>
-                                        {processingProgress.currentControl}
-                                    </small>
-
-                                    {processingProgress.phase === 'llm_processing' && (
-                                        <div className="mt-2">
-                                            <small className="text-info">
-                                                <i className="bi bi-info-circle me-1"></i>
-                                                Processing evidence files sequentially - each control and design element is analyzed one at a time for accurate results.
-                                            </small>
-                                        </div>
-                                    )}
+                {/* Action Buttons */}
+                <div className="mb-4 d-flex justify-content-center gap-3">
+                    <button
+                        onClick={handleViewZipContents}
+                        disabled={!zipFileRef.current?.files?.length || isViewingContents}
+                        className={`${styles.actionButton} ${styles.secondaryBg}`}
+                    >
+                        {isViewingContents ? (
+                            <div className="d-flex align-items-center">
+                                <div className="spinner-border spinner-border-sm me-2" role="status">
+                                    <span className="visually-hidden">Loading...</span>
                                 </div>
+                                Viewing ZIP contents...
                             </div>
-                        </div>
-                    </div>
-                )}
+                        ) : (
+                            "View ZIP Contents"
+                        )}
+                    </button>
 
-                {/* Action Button */}
-                <div className="mb-4">
                     <button
                         onClick={handleGenerateReport}
-                        disabled={!zipUploaded || loading}
+                        disabled={!zipUploaded || loading || !showZipContents}
                         className={styles.actionButton}
                     >
                         {loading ? (
@@ -432,39 +636,71 @@ const FullVendorAnalysis: React.FC = () => {
                                 Analyzing evidence files...
                             </div>
                         ) : (
-                            "Process Evidence Files & Generate Report"
+                            "Process Evidence Files"
                         )}
                     </button>
                 </div>
             </div>
 
             {/* ZIP Contents Display */}
-            {zipContents.folders.length > 0 && !showReport && (
+            {showZipContents && zipContents.folders.length > 0 && !showReport && (
                 <div className={styles.contentCard}>
                     <div className={styles.contentHeader}>
                         <h5 className={`mb-0 ${styles.tableHeader}`}>
-                            📁 ZIP File Contents
+                            📁 Extracted ZIP Folder
                         </h5>
                     </div>
                     <div className="card-body">
-                        {zipContents.folders.map((folder, index) => (
-                            <div key={index} className="mb-3">
-                                <strong className={styles.primaryText}>
-                                    📂 {folder.name}
-                                </strong>
-                                {folder.contents.length > 0 && (
-                                    <ul className="ms-3 mt-2">
-                                        {folder.contents.map((file, idx) => (
-                                            <li key={idx} className={styles.tableHeader}>
-                                                {file.type === 'pdf' && '📕 '}
-                                                {['jpg', 'jpeg', 'png', 'gif'].includes(file.type) && '🖼️ '}
-                                                {file.fileName}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                        ))}
+                        <div className={styles.folderStructure}>
+                            {zipContents.folders.map((folder, index) => (
+                                <div key={index} className={styles.folderItem}>
+                                    <div className={styles.folderName}>
+                                        /{folder.name}/
+                                    </div>
+                                    {folder.contents.length > 0 && (
+                                        <div className={styles.fileList}>
+                                            {folder.contents.map((file, idx) => {
+                                                // Get the path after the root folder
+                                                const subPath = file.fullPath
+                                                    ? file.fullPath.substring(folder.name.length + 1)
+                                                    : file.fileName;
+
+                                                // Split the path into parts for indentation
+                                                const pathParts = subPath.split('/');
+                                                const indent = pathParts.length > 1
+                                                    ? (pathParts.length - 1) * 20
+                                                    : 0;
+
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        className={styles.fileItem}
+                                                        style={{ paddingLeft: `${indent}px` }}
+                                                    >
+                                                        {pathParts.length > 1 ? (
+                                                            <>
+                                                                {pathParts.slice(0, -1).map((part: string, i: number) => (
+                                                                    <span key={i} className={styles.subFolder}>
+                                                                        {part}/
+                                                                    </span>
+                                                                ))}
+                                                                <span className={styles.fileName}>
+                                                                    {pathParts[pathParts.length - 1]}
+                                                                </span>
+                                                            </>
+                                                        ) : (
+                                                            <span className={styles.fileName}>
+                                                                {subPath}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}
