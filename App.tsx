@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import { generateMockReport, ReportItem, wellsFargoTheme } from "./utils/generate_report";
 import { processZipFile } from "./services/zipFileProcessor";
 import { processControlsWithEvidence } from "./services/evidenceService";
-import './fullvendorassessment.css';
+import styles from './assessment.module.css';
 
 // Enhanced ReportItem interface to match LLM results
 interface EnhancedReportItem extends ReportItem {
@@ -300,16 +300,16 @@ const FullVendorAnalysis: React.FC = () => {
     };
 
     return (
-        <div className="container-fluid wf-main-container">
+        <div className={`container-fluid ${styles.mainContainer}`}>
             <div className="text-center mb-4">
-                <h1 className="mb-4 wf-main-title">
+                <h1 className={`mb-4 ${styles.mainTitle}`}>
                     Third Party Risk Evaluation Service
                 </h1>
 
                 {/* ZIP File Upload Section */}
                 <div className="row justify-content-center">
                     <div className="col-md-6">
-                        <div className={wellsFargoTheme.classes.uploadCard}>
+                        <div className={styles.uploadCard}>
                             <div className="card-body">
                                 <label className="form-label h5 mb-3">Upload ZIP File</label>
                                 <div className="d-flex align-items-center justify-content-center mb-3">
@@ -325,19 +325,19 @@ const FullVendorAnalysis: React.FC = () => {
                                                 zIndex: 2
                                             }}
                                         />
-                                        <div className={wellsFargoTheme.classes.uploadArea}>
+                                        <div className={styles.uploadArea}>
                                             <div className="d-flex align-items-center justify-content-center">
-                                                <svg className={wellsFargoTheme.classes.uploadIcon} viewBox="0 0 16 16">
+                                                <svg className={styles.uploadIcon} viewBox="0 0 16 16">
                                                     <path fillRule="evenodd" d="M4.406 1.342A5.53 5.53 0 0 1 8 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.5.5 0 0 1 0-1h2.688C13.979 10 15 8.988 15 7.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 2.825 10.328 1 8 1a4.53 4.53 0 0 0-2.941 1.1c-.757.652-1.153 1.438-1.153 2.055v.448l-.445.049C2.064 4.805 1 5.952 1 7.318 1 8.785 2.23 10 3.781 10H6a.5.5 0 0 1 0 1H3.781C1.708 11 0 9.366 0 7.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383" />
                                                     <path fillRule="evenodd" d="M7.646 4.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 5.707V14.5a.5.5 0 0 1-1 0V5.707L5.354 7.854a.5.5 0 1 1-.708-.708z" />
                                                 </svg>
-                                                <div className={wellsFargoTheme.classes.uploadText}>
+                                                <div className={styles.uploadText}>
                                                     {zipUploaded ? (
-                                                        <span className={wellsFargoTheme.classes.uploadSuccess}>
+                                                        <span className={styles.uploadSuccess}>
                                                             ✓ ZIP file uploaded successfully
                                                         </span>
                                                     ) : (
-                                                        <span>Upload ZIP File with PDF Evidence</span>
+                                                        <span>Upload ZIP File with Evidence</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -362,7 +362,7 @@ const FullVendorAnalysis: React.FC = () => {
                 {processingProgress && (
                     <div className="row justify-content-center mb-4">
                         <div className="col-md-8">
-                            <div className={wellsFargoTheme.classes.progressCard}>
+                            <div className={styles.progressCard}>
                                 <div className="card-body">
                                     <div className="d-flex justify-content-between align-items-center mb-3">
                                         <h6 className="mb-0">
@@ -374,11 +374,11 @@ const FullVendorAnalysis: React.FC = () => {
                                             {processingProgress.current}/{processingProgress.total}
                                         </span>
                                     </div>
-                                    <div className="progress mb-2 wf-progress-bar">
+                                    <div className="progress mb-2">
                                         <div
-                                            className={`${wellsFargoTheme.classes.progressBar} ${processingProgress.phase === 'complete'
-                                                ? wellsFargoTheme.classes.progressBarSuccess
-                                                : wellsFargoTheme.classes.progressBarPrimary
+                                            className={`${styles.progressBar} ${processingProgress.phase === 'complete'
+                                                ? styles.progressBarSuccess
+                                                : styles.progressBarPrimary
                                                 }`}
                                             role="progressbar"
                                             style={{ width: `${(processingProgress.current / processingProgress.total) * 100}%` }}
@@ -393,7 +393,7 @@ const FullVendorAnalysis: React.FC = () => {
                                         <div className="mt-2">
                                             <small className="text-info">
                                                 <i className="bi bi-info-circle me-1"></i>
-                                                Processing PDF evidence files sequentially - each control and design element is analyzed one at a time for accurate results.
+                                                Processing evidence files sequentially - each control and design element is analyzed one at a time for accurate results.
                                             </small>
                                         </div>
                                     )}
@@ -408,7 +408,7 @@ const FullVendorAnalysis: React.FC = () => {
                     <button
                         onClick={handleGenerateReport}
                         disabled={!zipUploaded || loading}
-                        className={wellsFargoTheme.classes.actionButton}
+                        className={styles.actionButton}
                     >
                         {loading ? (
                             <div className="d-flex align-items-center">
@@ -426,22 +426,22 @@ const FullVendorAnalysis: React.FC = () => {
 
             {/* ZIP Contents Display */}
             {zipContents.folders.length > 0 && !showReport && (
-                <div className={wellsFargoTheme.classes.contentCard}>
-                    <div className={wellsFargoTheme.classes.contentHeader}>
-                        <h5 className={`mb-0 ${wellsFargoTheme.classes.tableHeader}`}>
+                <div className={styles.contentCard}>
+                    <div className={styles.contentHeader}>
+                        <h5 className={`mb-0 ${styles.tableHeader}`}>
                             📁 ZIP File Contents
                         </h5>
                     </div>
                     <div className="card-body">
                         {zipContents.folders.map((folder, index) => (
                             <div key={index} className="mb-3">
-                                <strong className={wellsFargoTheme.classes.primaryText}>
+                                <strong className={styles.primaryText}>
                                     📂 {folder.name}
                                 </strong>
                                 {folder.contents.length > 0 && (
                                     <ul className="ms-3 mt-2">
                                         {folder.contents.map((file, idx) => (
-                                            <li key={idx} className={wellsFargoTheme.classes.tableHeader}>
+                                            <li key={idx} className={styles.tableHeader}>
                                                 {file.type === 'pdf' && '📕 '}
                                                 {['jpg', 'jpeg', 'png', 'gif'].includes(file.type) && '🖼️ '}
                                                 {file.fileName}
@@ -457,25 +457,25 @@ const FullVendorAnalysis: React.FC = () => {
 
             {/* Generated Report Display */}
             {showReport && report && report.length > 0 && (
-                <div className={wellsFargoTheme.classes.contentCard}>
-                    <div className={wellsFargoTheme.classes.reportHeader}>
-                        <h2 className={wellsFargoTheme.classes.tableHeader}>Generated Report</h2>
+                <div className={styles.contentCard}>
+                    <div className={styles.reportHeader}>
+                        <h2 className={styles.tableHeader}>Generated Report</h2>
                         <div className="d-flex gap-3">
                             <button
                                 onClick={toggleViewMode}
-                                className="btn wf-secondary-bg"
+                                className={`btn ${styles.secondaryBg}`}
                             >
                                 {viewMode === 'cards' ? 'Table View' : 'Card View'}
                             </button>
                             <button
                                 onClick={downloadExcel}
-                                className="btn wf-success-bg"
+                                className={`btn ${styles.successBg}`}
                             >
                                 Download CSV
                             </button>
                             <button
                                 onClick={startOver}
-                                className="btn wf-danger-bg"
+                                className={`btn ${styles.dangerBg}`}
                             >
                                 Start Over
                             </button>
@@ -485,39 +485,39 @@ const FullVendorAnalysis: React.FC = () => {
                         {viewMode === 'table' ? (
                             <div className="table-responsive">
                                 <table className="table table-hover mb-0">
-                                    <thead className={wellsFargoTheme.classes.contentHeader}>
+                                    <thead className={styles.contentHeader}>
                                         <tr>
-                                            <th className={wellsFargoTheme.classes.tableHeader}>Question</th>
-                                            <th className={wellsFargoTheme.classes.tableHeader}>Answer</th>
-                                            <th className={wellsFargoTheme.classes.tableHeader}>Quality</th>
-                                            <th className={wellsFargoTheme.classes.tableHeader}>Source</th>
-                                            <th className={wellsFargoTheme.classes.tableHeader}>Summary</th>
-                                            <th className={wellsFargoTheme.classes.tableHeader}>Reference</th>
+                                            <th className={styles.tableHeader}>Question</th>
+                                            <th className={styles.tableHeader}>Answer</th>
+                                            <th className={styles.tableHeader}>Quality</th>
+                                            <th className={styles.tableHeader}>Source</th>
+                                            <th className={styles.tableHeader}>Summary</th>
+                                            <th className={styles.tableHeader}>Reference</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {report.map((item, index) => (
-                                            <tr key={index} className={wellsFargoTheme.classes.tableRow}>
-                                                <td className="wf-text" style={{ maxWidth: '400px', wordWrap: 'break-word' }}>
+                                            <tr key={index} className={styles.tableRow}>
+                                                <td className={styles.text} style={{ maxWidth: '400px', wordWrap: 'break-word' }}>
                                                     <strong>Q: </strong>{item.question}
                                                 </td>
                                                 <td>
-                                                    <span className={getAnswerBadgeClass(item.answer)}>
+                                                    <span className={styles[`badge${item.answer}`]}>
                                                         {item.answer}
                                                     </span>
                                                 </td>
                                                 <td>
-                                                    <span className={getQualityBadgeClass(item.quality)}>
+                                                    <span className={styles[`badge${item.quality}`]}>
                                                         {item.quality}
                                                     </span>
                                                 </td>
-                                                <td className={wellsFargoTheme.classes.tableHeader}>
+                                                <td className={styles.tableHeader}>
                                                     {item.source}
                                                 </td>
-                                                <td className="wf-text" style={{ maxWidth: '300px', wordWrap: 'break-word' }}>
+                                                <td className={styles.text} style={{ maxWidth: '300px', wordWrap: 'break-word' }}>
                                                     {item.summary}
                                                 </td>
-                                                <td className={wellsFargoTheme.classes.tableHeader}>
+                                                <td className={styles.tableHeader}>
                                                     {item.reference}
                                                 </td>
                                             </tr>
@@ -528,41 +528,41 @@ const FullVendorAnalysis: React.FC = () => {
                         ) : (
                             <div className="p-3">
                                 {report.map((item, index) => (
-                                    <div key={index} className="card mb-3 wf-border-radius">
+                                    <div key={index} className={`card mb-3 ${styles.borderRadius}`}>
                                         <div className="card-body">
-                                            <h5 className={`card-title ${wellsFargoTheme.classes.tableHeader}`}>
+                                            <h5 className={`card-title ${styles.tableHeader}`}>
                                                 Q: {item.question}
                                             </h5>
                                             <div className="table-responsive">
                                                 <table className="table table-borderless">
                                                     <tbody>
                                                         <tr>
-                                                            <td className={`fw-bold ${wellsFargoTheme.classes.tableHeader}`}>Answer:</td>
+                                                            <td className={`fw-bold ${styles.tableHeader}`}>Answer:</td>
                                                             <td>
-                                                                <span className={getAnswerBadgeClass(item.answer)}>
+                                                                <span className={styles[`badge${item.answer}`]}>
                                                                     {item.answer}
                                                                 </span>
                                                             </td>
                                                         </tr>
                                                         <tr>
-                                                            <td className={`fw-bold ${wellsFargoTheme.classes.tableHeader}`}>Quality:</td>
+                                                            <td className={`fw-bold ${styles.tableHeader}`}>Quality:</td>
                                                             <td>
-                                                                <span className={getQualityBadgeClass(item.quality)}>
+                                                                <span className={styles[`badge${item.quality}`]}>
                                                                     {item.quality}
                                                                 </span>
                                                             </td>
                                                         </tr>
                                                         <tr>
-                                                            <td className={`fw-bold ${wellsFargoTheme.classes.tableHeader}`}>Source:</td>
-                                                            <td className={wellsFargoTheme.classes.tableHeader}>{item.source}</td>
+                                                            <td className={`fw-bold ${styles.tableHeader}`}>Source:</td>
+                                                            <td className={styles.tableHeader}>{item.source}</td>
                                                         </tr>
                                                         <tr>
-                                                            <td className={`fw-bold ${wellsFargoTheme.classes.tableHeader}`}>Summary:</td>
-                                                            <td className={wellsFargoTheme.classes.tableHeader}>{item.summary}</td>
+                                                            <td className={`fw-bold ${styles.tableHeader}`}>Summary:</td>
+                                                            <td className={styles.tableHeader}>{item.summary}</td>
                                                         </tr>
                                                         <tr>
-                                                            <td className={`fw-bold ${wellsFargoTheme.classes.tableHeader}`}>Reference:</td>
-                                                            <td className={wellsFargoTheme.classes.tableHeader}>{item.reference}</td>
+                                                            <td className={`fw-bold ${styles.tableHeader}`}>Reference:</td>
+                                                            <td className={styles.tableHeader}>{item.reference}</td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
