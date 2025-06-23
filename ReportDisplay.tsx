@@ -1,6 +1,22 @@
 import React from 'react';
-import { AssessmentResult, LLMAnswerResponse } from '../types/survey';
 import styles from '../assessment.module.css';
+
+interface LLMAnswerResponse {
+    Answer: string;
+    Quality: 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW';
+    Source: string;
+    Summary: string;
+    Reference: string;
+}
+
+interface AssessmentResult {
+    controlId: string;
+    designElementId: string;
+    question: string;
+    answer: string | LLMAnswerResponse;
+    status: 'success' | 'error';
+    error?: string;
+}
 
 interface ReportDisplayProps {
     results?: AssessmentResult[];
@@ -38,9 +54,9 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [] }) =>
     if (!results || results.length === 0) {
         return (
             <div className={styles['results-container']}>
-                <h2>Generated Report</h2>
+                <h2>Assessment Report</h2>
                 <div className={styles['empty-state']}>
-                    <p>No assessment results available. Please upload a ZIP file and generate a report.</p>
+                    <p>No assessment results available. Please upload evidence files and generate a report.</p>
                 </div>
             </div>
         );
@@ -48,7 +64,7 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [] }) =>
 
     return (
         <div className={styles['results-container']}>
-            <h2>Generated Report</h2>
+            <h2>Assessment Report</h2>
             {results.map((result, index) => {
                 if (result.status === 'error') {
                     return (
@@ -66,7 +82,8 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [] }) =>
                     <div key={index} className={`${styles['result-item']} ${styles.success}`}>
                         <div className={styles['wf-assessment-card']}>
                             <div className={styles['wf-assessment-header']}>
-                                <h3>Q: {result.question}</h3>
+                                <h3>Control ID: {result.controlId}</h3>
+                                <div className={styles['wf-question']}>Q: {result.question}</div>
                             </div>
                             <div className={styles['result-details']}>
                                 <div className={styles['wf-content-row']}>
