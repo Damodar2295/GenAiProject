@@ -498,150 +498,11 @@ const FullVendorAnalysis: React.FC = () => {
     };
 
     const handleViewZipContents = async () => {
-        if (!zipUploaded) {
-            setError('Please upload a ZIP file first');
-            return;
-        }
-
+        if (!currentZipFile) return;
         setIsViewingContents(true);
-        try {
-            setShowZipContents(true);
-        } catch (err) {
-            console.error('Error viewing ZIP contents:', err);
-            setError('Failed to view ZIP contents');
-        } finally {
-            setIsViewingContents(false);
-        }
-    };
-
-    const processDesignElementsForControl = async (controlId: string, files: File[]) => {
-        // Initialize or reset state for this control
-        setControlResults(prev => ({
-            ...prev,
-            [controlId]: {
-                controlId,
-                isLoading: true,
-                results: [],
-                error: undefined
-            }
-        }));
-
-        try {
-            // Convert files to base64 first to avoid doing it multiple times
-            const evidenceBase64 = await Promise.all(files.map(file => {
-                return new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const base64 = reader.result as string;
-                        const base64Clean = base64.split(',')[1];
-                        resolve(base64Clean);
-                    };
-                    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-                    reader.readAsDataURL(file);
-                });
-            }));
-
-            // Get prompts for this control
-            const [valid, prompts] = await getDesignElementsByCID(controlId);
-
-            if (!valid || !prompts || prompts.length === 0) {
-                throw new Error(`No prompts found for control ${controlId}`);
-            }
-
-            // Process each prompt
-            const results: ApiResponse[] = [];
-
-            for (let i = 0; i < prompts.length; i++) {
-                const { prompt, question } = prompts[i];
-
-                try {
-                    console.log(`Processing prompt ${i + 1}/${prompts.length} for ${controlId}`);
-
-                    // Prepare payload
-                    const payload = {
-                        controlId,
-                        designElementId: `${controlId}-${i}`,
-                        prompt,
-                        question,
-                        evidences: evidenceBase64
-                    };
-
-                    // Make API call
-                    const { data } = await axios.post<ApiResponse>(
-                        '/api/validateDesignElements',
-                        payload,
-                        {
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        }
-                    );
-
-                    results.push(data);
-                    console.log(`Completed prompt ${i + 1}/${prompts.length} for ${controlId}`);
-                } catch (error) {
-                    console.error(`Error processing prompt ${i + 1}:`, error);
-                    results.push({
-                        status: 'error',
-                        error: error instanceof Error ? error.message : 'Failed to process prompt'
-                    });
-                }
-            }
-
-            // Update state with results
-            setControlResults(prev => ({
-                ...prev,
-                [controlId]: {
-                    controlId,
-                    isLoading: false,
-                    results
-                }
-            }));
-
-        } catch (error) {
-            console.error(`Error processing control ${controlId}:`, error);
-            setControlResults(prev => ({
-                ...prev,
-                [controlId]: {
-                    controlId,
-                    isLoading: false,
-                    results: [],
-                    error: error instanceof Error ? error.message : 'Failed to process control'
-                }
-            }));
-        }
-    };
-
-    const renderResults = (controlId: string) => {
-        const result = controlResults[controlId];
-        if (!result) return null;
-
-        return (
-            <div className="control-results" key={controlId}>
-                <h3>Results for Control {controlId}</h3>
-
-                {result.isLoading && (
-                    <div className="loading">Processing prompts...</div>
-                )}
-
-                {result.error && (
-                    <div className="error">
-                        Error: {result.error}
-                    </div>
-                )}
-
-                {result.results.map((response, index) => (
-                    <div key={`${controlId}-${index}`} className={`result ${response.status}`}>
-                        <h4>Design Element {index + 1}</h4>
-                        {response.status === 'success' ? (
-                            <div className="answer">{response.answer}</div>
-                        ) : (
-                            <div className="error">{response.error}</div>
-                        )}
-                    </div>
-                ))}
-            </div>
-        );
+        await handleZipFileChange(currentZipFile);
+        setShowZipContents(true);
+        setIsViewingContents(false);
     };
 
     return (
@@ -723,14 +584,16 @@ const FullVendorAnalysis: React.FC = () => {
                 )}
 
                 {/* Report Display */}
-                {showReport && report.length > 0 && (
-                    <div className="mt-4">
-                        <ReportDisplay
-                            report={report}
-                            onExportExcel={downloadExcel}
-                            onStartOver={startOver}
-                        />
-                    </div>
+                {showReport && (
+                    <ReportDisplay
+                        results={report.map(item => ({
+                            controlId: item.controlId || '',
+                            designElementId: item.designElementId || '',
+                            question: item.question,
+                            answer: item.answer || '',
+                            status: item.status || 'success'
+                        }))}
+                    />
                 )}
 
                 {/* Processing Progress */}
@@ -763,11 +626,6 @@ const FullVendorAnalysis: React.FC = () => {
                         </div>
                     </div>
                 )}
-
-                {/* Results section */}
-                <div className="results-container">
-                    {Object.keys(controlResults).map(controlId => renderResults(controlId))}
-                </div>
             </div>
         </div>
     );
