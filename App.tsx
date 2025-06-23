@@ -1,7 +1,8 @@
 import React, { useRef, useState } from "react";
 import { generateMockReport, ReportItem, wellsFargoTheme } from "./utils/generate_report";
 import { processZipFile } from "./services/zipFileProcessor";
-import { processControlsWithEvidence } from "./services/evidenceService";
+import { processControlsWithEvidence, GetLLMEvidence } from "./services/evidenceService";
+import { getDesignElementsByCID } from "./services/promptService";
 import styles from './assessment.module.css';
 
 // Enhanced ReportItem interface to match LLM results
@@ -10,6 +11,7 @@ interface EnhancedReportItem extends ReportItem {
     designElementId?: string;
     status?: 'success' | 'error';
     processingError?: string;
+    evidence?: string[];
 }
 
 interface ProcessingProgress {
@@ -209,128 +211,166 @@ const FullVendorAnalysis: React.FC = () => {
                 filesCount: zipResult.files?.length || 0
             });
 
-            // Prepare files for processing, whether they're in folders or not
-            type ProcessItem = {
-                cid: string;
-                controlName: string;
-                evidences: ProcessedFile[];
-            };
-
-            const itemsToProcess: ProcessItem[] = [];
-
             // Process structured folders
-            if (zipResult.controls && zipResult.controls.length > 0) {
-                console.log('Processing controls/folders...');
-                const validControls = zipResult.controls.filter(control =>
-                    control.evidences && control.evidences.some(evidence =>
-                        evidence.type.toLowerCase() === 'pdf' ||
-                        ['jpg', 'jpeg', 'png', 'gif'].includes(evidence.type.toLowerCase())
-                    )
-                );
-
-                console.log(`Found ${validControls.length} valid controls with evidence files`);
-
-                if (validControls.length > 0) {
-                    itemsToProcess.push(...validControls.map(control => {
-                        const item = {
-                            cid: control.cid || control.controlName,
-                            controlName: control.controlName,
-                            evidences: control.evidences.filter(evidence =>
-                                evidence.type.toLowerCase() === 'pdf' ||
-                                ['jpg', 'jpeg', 'png', 'gif'].includes(evidence.type.toLowerCase())
-                            )
-                        };
-                        console.log(`Control "${control.controlName}" has ${item.evidences.length} valid evidence files`);
-                        return item;
-                    }));
-                }
+            if (!zipResult.controls || zipResult.controls.length === 0) {
+                throw new Error('No valid controls found in ZIP file');
             }
 
-            // Process any loose files if no structured folders were found
-            if (itemsToProcess.length === 0 && zipResult.files && zipResult.files.length > 0) {
-                console.log('Processing loose files...');
-                const validFiles = zipResult.files.filter(file =>
-                    file.type.toLowerCase() === 'pdf' ||
-                    ['jpg', 'jpeg', 'png', 'gif'].includes(file.type.toLowerCase())
-                );
+            console.log('Processing controls/folders...');
+            const validControls = zipResult.controls.filter(control =>
+                control.evidences && control.evidences.some(evidence =>
+                    evidence.type.toLowerCase() === 'pdf'
+                )
+            );
 
-                console.log(`Found ${validFiles.length} valid loose files`);
+            console.log(`Found ${validControls.length} valid controls with evidence files`);
 
-                if (validFiles.length > 0) {
-                    itemsToProcess.push({
-                        cid: 'unstructured',
-                        controlName: 'Unstructured Files',
-                        evidences: validFiles
-                    });
-                }
+            if (validControls.length === 0) {
+                throw new Error('No valid controls with PDF evidence files found');
             }
 
-            console.log('Items prepared for processing:', {
-                totalItems: itemsToProcess.length,
-                items: itemsToProcess.map(item => ({
-                    name: item.controlName,
-                    evidenceCount: item.evidences.length
-                }))
-            });
-
-            if (itemsToProcess.length === 0) {
-                throw new Error("No valid evidence files (PDFs or images) found in the ZIP archive. Please check the contents and try again.");
-            }
-
-            // Phase 2: Sequential Processing
+            // Phase 2: Process each control through LLM
             setProcessingProgress({
                 current: 0,
-                total: itemsToProcess.length,
-                currentControl: 'Starting evidence analysis...',
+                total: validControls.length,
+                currentControl: 'Starting LLM processing...',
                 phase: 'llm_processing'
             });
 
-            // Process files through LLM sequentially
-            const processedResult = await processControlsWithEvidence(
-                itemsToProcess,
-                (progressUpdate) => {
-                    setProcessingProgress({
-                        current: progressUpdate.current,
-                        total: progressUpdate.total,
-                        currentControl: progressUpdate.currentControl,
-                        phase: 'llm_processing'
+            let currentIndex = 0;
+            const totalControls = validControls.length;
+
+            for (const control of validControls) {
+                currentIndex++;
+                console.log(`Processing control ${currentIndex}/${totalControls}: ${control.controlName} (${control.cid})`);
+
+                try {
+                    // Get design elements for this CID
+                    const [isValid, designElements] = await getDesignElementsByCID(control.cid);
+                    console.log(`Design elements for ${control.cid}:`, {
+                        isValid,
+                        elementCount: designElements.length,
+                        elements: designElements.map(e => e.id)
+                    });
+
+                    if (!isValid || designElements.length === 0) {
+                        const errorMsg = `No design elements found for Control ID: ${control.cid}`;
+                        console.warn(errorMsg);
+                        processedReports.push({
+                            id: control.cid,
+                            controlId: control.cid,
+                            designElementId: `${control.cid}-error`,
+                            status: 'error',
+                            processingError: errorMsg,
+                            quality: 'INADEQUATE',
+                            answer: 'NO',
+                            evidence: [],
+                            question: 'No design elements found',
+                            source: 'System',
+                            summary: errorMsg,
+                            reference: 'N/A'
+                        });
+                        continue;
+                    }
+
+                    // Process each design element
+                    for (const element of designElements) {
+                        try {
+                            setProcessingProgress({
+                                current: currentIndex,
+                                total: totalControls,
+                                currentControl: `${control.controlName} - Processing ${element.id}`,
+                                phase: 'llm_processing'
+                            });
+
+                            // Prepare evidence payload - reuse existing base64 from zipFileProcessor
+                            const payload = {
+                                controlId: control.cid,
+                                designElementId: element.id,
+                                prompt: element.prompt,
+                                question: element.question,
+                                evidences: control.evidences
+                                    .filter(e => e.type.toLowerCase() === 'pdf')
+                                    .map(e => e.base64)
+                            };
+
+                            console.log(`Sending payload for ${element.id}:`, {
+                                controlId: payload.controlId,
+                                designElementId: payload.designElementId,
+                                evidenceCount: payload.evidences.length
+                            });
+
+                            // Process through LLM
+                            const llmResult = await GetLLMEvidence(payload);
+                            console.log(`LLM result for ${element.id}:`, {
+                                status: llmResult.status,
+                                hasAnswer: !!llmResult.answer,
+                                error: llmResult.error
+                            });
+
+                            // Add to processed reports
+                            processedReports.push({
+                                id: element.id,
+                                controlId: control.cid,
+                                designElementId: element.id,
+                                status: llmResult.status,
+                                processingError: llmResult.error,
+                                quality: llmResult.status === 'success' ? 'ADEQUATE' : 'INADEQUATE',
+                                answer: llmResult.status === 'success' ? 'YES' : 'NO',
+                                evidence: control.evidences.map(e => e.name),
+                                question: element.question,
+                                source: control.controlName,
+                                summary: llmResult.answer || llmResult.error || 'No response received',
+                                reference: `Control: ${control.controlName}`
+                            });
+
+                            // Add small delay to prevent overwhelming the API
+                            await new Promise(resolve => setTimeout(resolve, 500));
+
+                        } catch (error) {
+                            const errorMsg = `Failed to process ${control.controlName} - ${element.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                            console.error(errorMsg);
+                            processedReports.push({
+                                id: element.id,
+                                controlId: control.cid,
+                                designElementId: element.id,
+                                status: 'error',
+                                processingError: errorMsg,
+                                quality: 'INADEQUATE',
+                                answer: 'NO',
+                                evidence: control.evidences.map(e => e.name),
+                                question: element.question,
+                                source: control.controlName,
+                                summary: errorMsg,
+                                reference: `Control: ${control.controlName}`
+                            });
+                        }
+                    }
+
+                } catch (error) {
+                    const errorMsg = `Failed to get design elements for ${control.controlName}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                    console.error(errorMsg);
+                    processedReports.push({
+                        id: control.cid,
+                        controlId: control.cid,
+                        designElementId: `${control.cid}-error`,
+                        status: 'error',
+                        processingError: errorMsg,
+                        quality: 'INADEQUATE',
+                        answer: 'NO',
+                        evidence: control.evidences.map(e => e.name),
+                        question: 'Failed to get design elements',
+                        source: control.controlName,
+                        summary: errorMsg,
+                        reference: `Control: ${control.controlName}`
                     });
                 }
-            );
-
-            console.log(`Evidence processing completed. Results: ${processedResult.results.length}`);
-
-            // Transform results to match ReportItem interface
-            processedResult.results.forEach((result, index) => {
-                const item = itemsToProcess.find(i => i.cid === result.controlId);
-
-                const mappedAnswer: 'YES' | 'NO' | 'PARTIAL' = result.status === 'success'
-                    ? (result.answer && result.answer.trim() ? 'YES' : 'PARTIAL')
-                    : 'NO';
-
-                const mappedQuality: 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW' = result.status === 'success'
-                    ? 'ADEQUATE'
-                    : 'INADEQUATE';
-
-                processedReports.push({
-                    id: result.designElementId || `result-${index}`,
-                    question: result.question,
-                    answer: mappedAnswer,
-                    quality: mappedQuality,
-                    source: `Source: ${item?.controlName || 'Unknown'}`,
-                    summary: `${result.status === 'success' ? 'Successfully processed' : 'Processing failed'} for ${result.designElementId}`,
-                    reference: `ID: ${result.controlId}, Element: ${result.designElementId}`,
-                    controlId: result.controlId,
-                    designElementId: result.designElementId,
-                    status: result.status,
-                    processingError: result.error
-                });
-            });
+            }
 
             setProcessingProgress({
-                current: itemsToProcess.length,
-                total: itemsToProcess.length,
-                currentControl: `Processing complete! ${processedResult.successCount} successful, ${processedResult.errorCount} errors`,
+                current: totalControls,
+                total: totalControls,
+                currentControl: 'Processing complete!',
                 phase: 'complete'
             });
 
