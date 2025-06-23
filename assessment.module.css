@@ -1,0 +1,833 @@
+/* ===============================================
+   Wells Fargo Vendor Assessment Theme Styles
+   =============================================== */
+
+/* CSS Custom Properties for Wells Fargo Colors */
+:root {
+    --wf-primary: #D71E2B;
+    /* Wells Fargo Red */
+    --wf-secondary: #FFCD41;
+    /* Wells Fargo Gold */
+    --wf-success: #00A651;
+    /* Green for adequate */
+    --wf-warning: #FF8C00;
+    /* Orange for needs review */
+    --wf-danger: #D71E2B;
+    /* Red for inadequate */
+    --wf-background: #F8F9FA;
+    /* Light background */
+    --wf-text: #333333;
+    /* Dark text */
+    --wf-border: #E5E5E5;
+    /* Light border */
+    --wf-light-gray: #f0f0f0;
+    /* Hover background */
+    --wf-white: #ffffff;
+    /* White */
+    --wf-red: #D71E28;
+    --wf-gold: #FDB913;
+    --wf-dark-gray: #333333;
+    --wf-border-gray: #E0E0E0;
+}
+
+/* ===== MAIN THEME CLASSES ===== */
+
+.wf-primary {
+    color: var(--wf-primary) !important;
+}
+
+.wf-primary-bg {
+    background-color: var(--wf-primary) !important;
+    color: var(--wf-white) !important;
+}
+
+.wf-secondary {
+    color: var(--wf-secondary) !important;
+}
+
+.wf-secondary-bg {
+    background-color: var(--wf-secondary) !important;
+    color: #333 !important;
+}
+
+.wf-success {
+    color: var(--wf-success) !important;
+}
+
+.wf-success-bg {
+    background-color: var(--wf-success) !important;
+    color: var(--wf-white) !important;
+}
+
+.wf-danger {
+    color: var(--wf-danger) !important;
+}
+
+.wf-danger-bg {
+    background-color: var(--wf-danger) !important;
+    color: var(--wf-white) !important;
+}
+
+.wf-text {
+    color: var(--wf-text) !important;
+}
+
+.wf-background {
+    background-color: var(--wf-background) !important;
+}
+
+.wf-border {
+    border-color: var(--wf-border) !important;
+}
+
+/* ===== COMPONENT-SPECIFIC STYLES ===== */
+
+/* Main Container */
+.wf-main-container {
+    margin-top: 1.5rem;
+}
+
+.wf-main-title {
+    color: #000000;
+    margin-bottom: 1.5rem;
+}
+
+/* ZIP Upload Card */
+.wf-upload-card {
+    border-color: var(--wf-border);
+    margin-bottom: 1.5rem;
+}
+
+.wf-upload-area {
+    height: 80px;
+    border: 2px dashed var(--wf-border);
+    background-color: #f8f9fa;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 0.375rem;
+}
+
+.wf-upload-area:hover {
+    border-color: var(--wf-primary) !important;
+    background-color: var(--wf-light-gray) !important;
+}
+
+.wf-upload-icon {
+    width: 32px;
+    height: 32px;
+    fill: var(--wf-primary);
+}
+
+.wf-upload-text {
+    color: var(--wf-text);
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.wf-upload-success {
+    color: var(--wf-success);
+    font-weight: bold;
+}
+
+/* Action Button */
+.wf-action-button {
+    background-color: var(--wf-primary);
+    border-color: var(--wf-primary);
+    color: var(--wf-white);
+    height: 50px;
+    font-size: 1.1rem;
+    padding: 0 1.5rem;
+}
+
+.wf-action-button:hover:not(:disabled) {
+    background-color: #B91C28;
+    border-color: #B91C28;
+    color: var(--wf-white);
+}
+
+.wf-action-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Progress Card */
+.wf-progress-card {
+    margin-bottom: 1.5rem;
+}
+
+.wf-progress-bar {
+    height: 8px;
+}
+
+.wf-progress-bar-success {
+    background-color: var(--wf-success);
+}
+
+.wf-progress-bar-primary {
+    background-color: var(--wf-primary);
+}
+
+/* Content Cards */
+.wf-content-card {
+    border-color: var(--wf-border);
+    margin-top: 1.5rem;
+}
+
+.wf-content-header {
+    background-color: var(--wf-background);
+}
+
+/* Report Display */
+.wf-report-header {
+    background-color: var(--wf-background);
+}
+
+.wf-table-header {
+    background-color: var(--wf-background);
+    font-weight: bold;
+}
+
+.wf-table-row {
+    border-bottom: 1px solid var(--wf-border);
+}
+
+/* Assessment Status Badges */
+.wf-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: bold;
+    color: var(--wf-white);
+}
+
+/* Answer Badges */
+.wf-answer-yes {
+    background-color: var(--wf-success);
+}
+
+.wf-answer-no {
+    background-color: var(--wf-danger);
+}
+
+.wf-answer-partial {
+    background-color: var(--wf-warning);
+}
+
+/* Quality Badges */
+.wf-quality-adequate {
+    background-color: var(--wf-success);
+}
+
+.wf-quality-inadequate {
+    background-color: var(--wf-danger);
+}
+
+.wf-quality-needs-review {
+    background-color: var(--wf-warning);
+}
+
+/* Status Badges */
+.wf-status-success {
+    background-color: var(--wf-success);
+}
+
+.wf-status-error {
+    background-color: var(--wf-danger);
+}
+
+/* Assessment Component Specific Styles */
+.wf-assessment-container {
+    margin-top: 1.5rem;
+}
+
+.wf-assessment-card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.wf-assessment-header {
+    background-color: var(--wf-primary);
+    color: var(--wf-white);
+}
+
+.wf-file-input {
+    border-radius: 0.375rem;
+}
+
+.wf-stats-card {
+    text-align: center;
+}
+
+.wf-stats-primary {
+    color: var(--wf-primary);
+}
+
+.wf-stats-success {
+    color: var(--wf-success);
+}
+
+.wf-stats-danger {
+    color: var(--wf-danger);
+}
+
+/* Navigation Styles */
+.wf-navbar {
+    background-color: var(--wf-primary);
+}
+
+.wf-navbar-brand {
+    color: var(--wf-white);
+}
+
+.wf-nav-link {
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+}
+
+.wf-nav-link.active {
+    color: var(--wf-white);
+}
+
+.wf-nav-link:hover {
+    color: var(--wf-white);
+}
+
+/* Footer Styles */
+.wf-footer {
+    background-color: #343a40;
+    color: var(--wf-white);
+    text-align: center;
+    padding: 1rem 0;
+    margin-top: 3rem;
+}
+
+.wf-footer .text-muted {
+    color: #6c757d !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .wf-main-container {
+        margin-top: 1rem;
+    }
+
+    .wf-action-button {
+        height: auto;
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+    }
+
+    .wf-upload-area {
+        height: 60px;
+    }
+
+    .wf-upload-icon {
+        width: 24px;
+        height: 24px;
+    }
+
+    .wf-upload-text {
+        font-size: 1rem;
+    }
+}
+
+/* Utility Classes */
+.wf-text-small {
+    font-size: 0.875rem;
+}
+
+.wf-text-large {
+    font-size: 1.125rem;
+}
+
+.wf-font-weight-bold {
+    font-weight: bold;
+}
+
+.wf-font-weight-medium {
+    font-weight: 500;
+}
+
+.wf-border-radius {
+    border-radius: 0.375rem;
+}
+
+.wf-shadow {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.wf-shadow-lg {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Animation Utilities */
+.wf-transition {
+    transition: all 0.3s ease;
+}
+
+.wf-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Print Styles */
+@media print {
+    .wf-primary-bg {
+        background-color: var(--wf-primary) !important;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+    }
+
+    .wf-success-bg {
+        background-color: var(--wf-success) !important;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+    }
+
+    .wf-danger-bg {
+        background-color: var(--wf-danger) !important;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+    }
+}
+
+.uploadIcon {
+    width: 24px;
+    height: 24px;
+    margin-right: 8px;
+    fill: #666;
+}
+
+.uploadArea {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.uploadArea:hover {
+    border-color: #0056b3;
+    background: #f0f0f0;
+}
+
+.uploadText {
+    font-size: 16px;
+    color: #666;
+    margin-left: 8px;
+}
+
+.uploadSuccess {
+    color: #28a745;
+    font-weight: 500;
+}
+
+/* Other necessary styles */
+.mainContainer {
+    padding: 20px;
+}
+
+.mainTitle {
+    color: #333;
+    margin-bottom: 30px;
+}
+
+.uploadCard {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+/* Add other styles as needed */
+
+.folderStructure {
+    font-family: monospace;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+}
+
+.folderItem {
+    margin-bottom: 1rem;
+}
+
+.folderName {
+    font-weight: bold;
+    color: #0d6efd;
+    margin-bottom: 0.5rem;
+    font-size: 1.1em;
+}
+
+.fileList {
+    margin-left: 1rem;
+}
+
+.fileItem {
+    padding: 0.25rem 0;
+    transition: background-color 0.2s;
+    border-radius: 0.25rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.fileItem:hover {
+    background-color: #e9ecef;
+}
+
+.subFolder {
+    color: #6c757d;
+    margin-right: 0.25rem;
+}
+
+.fileName {
+    color: #212529;
+}
+
+/* Add icons */
+.folderName::before {
+    content: "📁";
+    margin-right: 0.5rem;
+}
+
+.fileName::before {
+    content: "📄";
+    margin-right: 0.5rem;
+}
+
+/* Indentation guide lines */
+.fileItem {
+    position: relative;
+}
+
+.fileItem::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #dee2e6;
+    opacity: 0.5;
+}
+
+/* Main Container Styles */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+/* Typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--wf-dark-gray);
+}
+
+.appTitle {
+    color: var(--wf-red);
+    font-weight: 600;
+    margin-bottom: 2rem;
+    font-size: 2.5rem;
+    text-align: center;
+}
+
+/* Card Styles */
+.card {
+    border: 1px solid var(--wf-border-gray);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    background-color: white;
+    margin-bottom: 1.5rem;
+}
+
+.cardHeader {
+    background-color: var(--wf-light-gray);
+    border-bottom: 1px solid var(--wf-border-gray);
+    padding: 1rem;
+    border-radius: 8px 8px 0 0;
+}
+
+.cardBody {
+    padding: 1.5rem;
+}
+
+/* Grid Styles */
+.grid {
+    border: 1px solid var(--wf-border-gray);
+    border-radius: 4px;
+}
+
+.gridHeader {
+    background-color: var(--wf-light-gray);
+    border-bottom: 1px solid var(--wf-border-gray);
+}
+
+/* Button Styles */
+.button {
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.primaryButton {
+    composes: button;
+    background-color: var(--wf-red);
+    border: 1px solid var(--wf-red);
+    color: white;
+}
+
+.primaryButton:hover {
+    background-color: #B01821;
+    border-color: #B01821;
+}
+
+.secondaryButton {
+    composes: button;
+    background-color: var(--wf-gold);
+    border: 1px solid var(--wf-gold);
+    color: var(--wf-dark-gray);
+}
+
+.secondaryButton:hover {
+    background-color: #E5A711;
+    border-color: #E5A711;
+}
+
+/* Upload Zone Styles */
+.uploadZone {
+    border: 2px dashed var(--wf-border-gray);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    background-color: var(--wf-light-gray);
+    transition: all 0.2s ease;
+}
+
+.uploadZone:hover {
+    border-color: var(--wf-red);
+    background-color: #FFF5F5;
+}
+
+/* Progress Bar Styles */
+.progressContainer {
+    margin: 1rem 0;
+}
+
+.progressBar {
+    height: 8px;
+    background-color: var(--wf-light-gray);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    background-color: var(--wf-red);
+    transition: width 0.3s ease;
+}
+
+/* Status Badge Styles */
+.badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.badgeSuccess {
+    composes: badge;
+    background-color: #E8F5E9;
+    color: #2E7D32;
+}
+
+.badgeError {
+    composes: badge;
+    background-color: #FFEBEE;
+    color: var(--wf-red);
+}
+
+.badgeWarning {
+    composes: badge;
+    background-color: #FFF3E0;
+    color: #F57C00;
+}
+
+.badgeInfo {
+    composes: badge;
+    background-color: #E3F2FD;
+    color: #1976D2;
+}
+
+/* Quality Indicators */
+.badgeAdequate {
+    composes: badge;
+    background-color: #E8F5E9;
+    color: #2E7D32;
+}
+
+.badgeInadequate {
+    composes: badge;
+    background-color: #FFEBEE;
+    color: var(--wf-red);
+}
+
+.badgeNeedsReview {
+    composes: badge;
+    background-color: #FFF3E0;
+    color: #F57C00;
+}
+
+/* Answer Indicators */
+.badgeYes {
+    composes: badge;
+    background-color: #E8F5E9;
+    color: #2E7D32;
+}
+
+.badgeNo {
+    composes: badge;
+    background-color: #FFEBEE;
+    color: var(--wf-red);
+}
+
+.badgePartial {
+    composes: badge;
+    background-color: #FFF3E0;
+    color: #F57C00;
+}
+
+/* Loading States */
+.loadingSpinner {
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+
+    .appTitle {
+        font-size: 2rem;
+    }
+
+    .button {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* Table Styles */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+}
+
+.table th {
+    background-color: var(--wf-light-gray);
+    color: var(--wf-dark-gray);
+    font-weight: 600;
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 2px solid var(--wf-border-gray);
+}
+
+.table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--wf-border-gray);
+}
+
+.table tr:hover {
+    background-color: #FAFAFA;
+}
+
+/* Form Styles */
+.formGroup {
+    margin-bottom: 1.5rem;
+}
+
+.formLabel {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--wf-dark-gray);
+    font-weight: 500;
+}
+
+.formControl {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--wf-border-gray);
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.formControl:focus {
+    border-color: var(--wf-red);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(215, 30, 40, 0.1);
+}
+
+/* Alert Styles */
+.alert {
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.alertDanger {
+    composes: alert;
+    background-color: #FFEBEE;
+    border: 1px solid #FFCDD2;
+    color: var(--wf-red);
+}
+
+.alertSuccess {
+    composes: alert;
+    background-color: #E8F5E9;
+    border: 1px solid #C8E6C9;
+    color: #2E7D32;
+}
+
+.alertWarning {
+    composes: alert;
+    background-color: #FFF3E0;
+    border: 1px solid #FFE0B2;
+    color: #F57C00;
+}
+
+/* Folder Title */
+.folderTitle {
+    color: var(--wf-dark-gray);
+    font-size: 1rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.folderTitle :global(.k-icon) {
+    color: var(--wf-gold);
+    margin-right: 0.5rem;
+}
