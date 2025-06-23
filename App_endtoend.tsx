@@ -63,6 +63,7 @@ interface ProcessedFolder {
 }
 
 interface ControlResult {
+
     controlId: string;
     isLoading: boolean;
     error?: string;
@@ -465,6 +466,11 @@ const FullVendorAnalysis: React.FC = () => {
         setZipUploaded(false);
         setZipContents({ folders: [] });
         setCurrentZipFile(null);
+        setViewMode('table');
+        setProcessingProgress(null);
+        setControlResults({});
+        setIsViewingContents(false);
+        setShowZipContents(false);
     };
 
     const toggleViewMode = () => {
@@ -593,6 +599,7 @@ const FullVendorAnalysis: React.FC = () => {
                             answer: item.answer || '',
                             status: item.status || 'success'
                         }))}
+                        onStartOver={startOver}
                     />
                 )}
 
