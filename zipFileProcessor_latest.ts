@@ -57,6 +57,22 @@ const domain_list = (domainListModule as any).default || domainListModule as unk
 let domainMappingCache: Map<string, DomainMapping> | null = null;
 
 /**
+ * Normalizes file paths to use forward slashes consistently
+ */
+function normalizePath(path: string): string {
+    return path.replace(/[\\/]+/g, '/').trim();
+}
+
+/**
+ * Safely extracts folder name from a path
+ */
+function getFolderName(path: string): string {
+    const normalized = normalizePath(path);
+    const parts = normalized.split('/').filter(Boolean);
+    return parts[parts.length - 1] || '';
+}
+
+/**
  * Loads domain mappings from imported domain_list.json
  * Returns a Map of normalized domain names to their domain mappings
  */
@@ -67,29 +83,43 @@ function loadDomainMappings(): Map<string, DomainMapping> {
 
     try {
         const mappings = new Map<string, DomainMapping>();
-        const domainList = (domainListModule as any).default || domainListModule;
+        let domainList: DomainItem[];
+
+        // Handle both module.default and direct import cases
+        if ('default' in domainListModule) {
+            domainList = (domainListModule as any).default;
+        } else {
+            domainList = domainListModule as unknown as DomainItem[];
+        }
 
         if (!Array.isArray(domainList)) {
-            throw new Error('Domain list is not an array');
+            console.error('Invalid domain list format:', domainList);
+            throw new Error('Domain list is not in the expected format');
         }
 
         domainList.forEach((domain: DomainItem) => {
-            if (!domain || !domain.Domain_Name || !domain.Domain_Code) {
+            if (!domain || typeof domain !== 'object') {
                 console.warn('Invalid domain item:', domain);
                 return;
             }
 
+            const { Domain_Code, Domain_Name } = domain;
+            if (!Domain_Code || !Domain_Name || typeof Domain_Code !== 'string' || typeof Domain_Name !== 'string') {
+                console.warn('Invalid domain data:', domain);
+                return;
+            }
+
             const mapping: DomainMapping = {
-                domain_id: domain.Domain_Code,
-                domain_name: domain.Domain_Name
+                domain_id: Domain_Code,
+                domain_name: Domain_Name
             };
-            const normalizedName = normalizeDomainName(domain.Domain_Name);
+            const normalizedName = normalizeDomainName(Domain_Name);
             mappings.set(normalizedName, mapping);
         });
 
         // Store in cache
         domainMappingCache = mappings;
-        console.log('Loaded domain mappings:', Array.from(mappings.keys()));
+        console.log('Successfully loaded domain mappings:', Array.from(mappings.keys()));
         return mappings;
 
     } catch (error) {
@@ -153,8 +183,8 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
 
         console.log('ZIP file loaded successfully');
 
-        // Get all files and folders
-        const allPaths = Object.keys(zip.files);
+        // Get all files and folders with normalized paths
+        const allPaths = Object.keys(zip.files).map(normalizePath);
         console.log('All files in ZIP:', allPaths);
 
         // Find the root folder name (assuming there's only one root folder)
@@ -180,10 +210,7 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
                     parts[0] === rootFolder && // Must be in root folder
                     zip.files[path].dir; // Must be a directory
             })
-            .map(path => {
-                const parts = path.split('/').filter(Boolean);
-                return parts[1]; // Return just the domain folder name
-            });
+            .map(getFolderName);
 
         console.log('Found domain folders:', domainFolders);
 
