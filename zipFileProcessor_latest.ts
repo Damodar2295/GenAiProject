@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import domainListData from '../../public/domain_list.json';
+import rawDomainListData from '../../public/domain_list.json';
 
 export interface ExtractedFile {
     name: string;
@@ -31,63 +31,63 @@ interface DomainMapping {
 }
 
 /**
+ * Normalizes the raw domain list data into a strongly-typed array
+ */
+const normalizeDomainList = (rawData: unknown): DomainMapping[] => {
+    if (!Array.isArray(rawData)) {
+        console.warn('Raw domain data is not an array:', rawData);
+        return [];
+    }
+
+    return rawData
+        .filter((item): item is { Domain_Id: string; Domain_Name: string } => {
+            if (!item || typeof item !== 'object') {
+                console.warn('Invalid domain item:', item);
+                return false;
+            }
+            if (!('Domain_Id' in item) || !('Domain_Name' in item)) {
+                console.warn('Missing Domain_Id or Domain_Name:', item);
+                return false;
+            }
+            if (typeof item.Domain_Id !== 'string' || typeof item.Domain_Name !== 'string') {
+                console.warn('Domain_Id or Domain_Name is not a string:', item);
+                return false;
+            }
+            if (item.Domain_Id.length === 0 || item.Domain_Name.length === 0) {
+                console.warn('Domain_Id or Domain_Name is empty:', item);
+                return false;
+            }
+            return true;
+        })
+        .map(item => ({
+            Domain_Id: item.Domain_Id,
+            Domain_Name: item.Domain_Name
+        }));
+};
+
+// Normalize the domain list once at module level
+const domainList: DomainMapping[] = normalizeDomainList(rawDomainListData);
+
+/**
  * Normalizes a string by trimming and converting to lowercase
  */
 const normalizeName = (name: string): string => name.trim().toLowerCase();
 
 /**
- * Validates the domain list structure
+ * Maps a folder name to a domain
  */
-const isValidDomainList = (list: unknown): list is DomainMapping[] => {
-    if (!Array.isArray(list)) {
-        console.warn('Domain list is not an array:', list);
-        return false;
+const mapFolderToDomain = (folderName: string, domains: DomainMapping[]): { domain_id: string; domain_name: string } | null => {
+    const normalizedFolderName = normalizeName(folderName);
+    const matchingDomain = domains.find(domain => normalizeName(domain.Domain_Name) === normalizedFolderName);
+
+    if (!matchingDomain) {
+        return null;
     }
 
-    const isValid = list.every(item => {
-        if (!item || typeof item !== 'object') {
-            console.warn('Invalid domain item:', item);
-            return false;
-        }
-        if (!('Domain_Id' in item) || !('Domain_Name' in item)) {
-            console.warn('Missing Domain_Id or Domain_Name:', item);
-            return false;
-        }
-        if (typeof item.Domain_Id !== 'string' || typeof item.Domain_Name !== 'string') {
-            console.warn('Domain_Id or Domain_Name is not a string:', item);
-            return false;
-        }
-        if (item.Domain_Id.length === 0 || item.Domain_Name.length === 0) {
-            console.warn('Domain_Id or Domain_Name is empty:', item);
-            return false;
-        }
-        return true;
-    });
-
-    if (!isValid) {
-        console.warn('Domain list validation failed');
-    }
-
-    return isValid;
-};
-
-/**
- * Maps a folder name to its corresponding Domain_Id and Domain_Name
- */
-const mapFolderToDomain = (
-    folderName: string,
-    domainList: DomainMapping[]
-): { domain_id: string; domain_name: string; } | null => {
-    const normalizedFolder = normalizeName(folderName);
-
-    const match = domainList.find(domain =>
-        normalizeName(domain.Domain_Name) === normalizedFolder
-    );
-
-    return match ? {
-        domain_id: match.Domain_Id,
-        domain_name: match.Domain_Name
-    } : null;
+    return {
+        domain_id: matchingDomain.Domain_Id,
+        domain_name: matchingDomain.Domain_Name
+    };
 };
 
 /**
@@ -170,13 +170,12 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
         const zip = new JSZip();
         const zipContent = await zip.loadAsync(zipFile);
 
-        // Load and validate domain list
-        console.log('Loading domain list...');
-        if (!isValidDomainList(domainListData)) {
-            console.error('Domain list validation failed. Current data:', domainListData);
-            throw new Error('Invalid domain list structure. Please check domain_list.json format.');
+        // Verify domain list is available
+        if (domainList.length === 0) {
+            console.error('No valid domains found in domain list');
+            throw new Error('Domain list is empty after normalization. Please check domain_list.json format.');
         }
-        console.log('Domain list loaded successfully:', domainListData);
+        console.log('Using normalized domain list with', domainList.length, 'domains');
 
         // Get the root folder name to ignore it in domain mapping
         const rootFolder = getRootFolderName(zipContent);
@@ -196,7 +195,7 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
 
         // Process each subfolder
         for (const folderName of subfolders) {
-            const domainMapping = mapFolderToDomain(folderName, domainListData);
+            const domainMapping = mapFolderToDomain(folderName, domainList);
             if (!domainMapping) {
                 console.warn(`Could not map folder "${folderName}" to a Domain_Id`);
                 result.errors.push(`Unmapped folder: ${folderName}`);
@@ -280,7 +279,7 @@ export async function validateZipStructure(zipFile: File): Promise<{ isValid: bo
 
         // Check if any folders can be mapped to valid controls
         for (const folderName of foundFolders) {
-            const mapping = mapFolderToDomain(folderName, domainListData);
+            const mapping = mapFolderToDomain(folderName, domainList);
             if (mapping) {
                 hasValidStructure = true;
                 break;
@@ -311,13 +310,8 @@ export async function validateZipStructure(zipFile: File): Promise<{ isValid: bo
  * Returns a mapping of normalized domain names to their Domain_Ids
  */
 export function getAvailableControlMappings(): Record<string, string> {
-    if (!isValidDomainList(domainListData)) {
-        console.error('Invalid domain list for control mappings');
-        return {};
-    }
-
     const record: Record<string, string> = {};
-    domainListData.forEach((domain: DomainMapping) => {
+    domainList.forEach(domain => {
         record[normalizeName(domain.Domain_Name)] = domain.Domain_Id;
     });
     return record;
@@ -327,12 +321,7 @@ export function getAvailableControlMappings(): Record<string, string> {
  * Returns a list of expected folder names for each domain
  */
 export function getExpectedFolderNames(): Array<{ domainCode: string, domainName: string, expectedFolderNames: string[] }> {
-    if (!isValidDomainList(domainListData)) {
-        console.error('Invalid domain list for folder names');
-        return [];
-    }
-
-    return domainListData.map((domain: DomainMapping) => ({
+    return domainList.map(domain => ({
         domainCode: domain.Domain_Id,
         domainName: domain.Domain_Name,
         expectedFolderNames: [normalizeName(domain.Domain_Name)]
@@ -365,7 +354,7 @@ export async function mapDomainsToDomainIds(zipFile: File): Promise<{ mappings: 
 
         // Process each folder
         for (const folderName of foundFolders) {
-            const domainMapping = mapFolderToDomain(folderName, domainListData);
+            const domainMapping = mapFolderToDomain(folderName, domainList);
             if (domainMapping) {
                 // Get all files in this folder
                 const domainFiles = Object.keys(zipContent.files)
@@ -397,10 +386,5 @@ export async function mapDomainsToDomainIds(zipFile: File): Promise<{ mappings: 
  * Returns a list of all available domain mappings
  */
 export function getAvailableDomainMappings(): DomainMapping[] {
-    if (!isValidDomainList(domainListData)) {
-        console.error('Invalid domain list for available mappings');
-        return [];
-    }
-
-    return [...domainListData];
+    return [...domainList];
 } 
