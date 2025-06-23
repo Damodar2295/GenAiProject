@@ -1,55 +1,63 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styles from '../assessment.module.css';
+import { ButtonGroup, Button } from '@progress/kendo-react-buttons';
 
-interface LLMAnswerResponse {
+interface TableRow {
+    Question: string;
     Answer: string;
-    Quality: 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW';
-    Source: string;
+    Answer_Quality: string;
+    Answer_Source: string;
     Summary: string;
     Reference: string;
 }
 
-interface AssessmentResult {
-    controlId: string;
-    designElementId: string;
-    question: string;
-    answer: string | LLMAnswerResponse;
-    status: 'success' | 'error';
-    error?: string;
-}
-
 interface ReportDisplayProps {
-    results?: AssessmentResult[];
+    results?: Array<{
+        controlId: string;
+        designElementId: string;
+        question: string;
+        answer: string;
+        status: 'success' | 'error';
+        error?: string;
+    }>;
+    onStartOver: () => void;
 }
 
-export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [] }) => {
-    const parseAnswer = (answer: string | LLMAnswerResponse): LLMAnswerResponse => {
-        if (typeof answer === 'string') {
-            try {
-                return JSON.parse(answer);
-            } catch (e) {
-                return {
-                    Answer: answer,
-                    Quality: 'NEEDS_REVIEW',
-                    Source: 'N/A',
-                    Summary: 'Unable to parse response',
-                    Reference: 'N/A'
-                };
-            }
-        }
-        return answer;
-    };
+export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [], onStartOver }) => {
+    const [tableData, setTableData] = useState<TableRow[]>([]);
+    const [tableCols] = useState(['Question', 'Answer', 'Answer_Quality', 'Answer_Source', 'Summary', 'Reference']);
+    const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
 
-    const getQualityClass = (quality: string): string => {
-        switch (quality?.toUpperCase()) {
-            case 'ADEQUATE':
-                return styles['wf-quality-adequate'];
-            case 'INADEQUATE':
-                return styles['wf-quality-inadequate'];
-            default:
-                return styles['wf-quality-needs-review'];
-        }
-    };
+    useEffect(() => {
+        const rows = results.flatMap((r) => {
+            let txt = r.answer?.trim() || '';
+
+            if (txt.startsWith('"') || txt.startsWith('```json')) {
+                txt = txt
+                    .replace(/^"(?:json)?\s*/i, '')
+                    .replace(/\s*"```$/, '')
+                    .replace(/^```(?:json)?\s*/i, '')
+                    .replace(/\s*```$/, '');
+            }
+
+            try {
+                const obj = JSON.parse(txt);
+                return Array.isArray(obj) ? obj : [obj];
+            } catch {
+                // fallback object when JSON parsing fails
+                return [{
+                    Question: r.question,
+                    Answer: r.answer,
+                    Answer_Quality: '',
+                    Answer_Source: '',
+                    Summary: '',
+                    Reference: ''
+                }];
+            }
+        });
+
+        setTableData(rows);
+    }, [results]);
 
     if (!results || results.length === 0) {
         return (
@@ -62,63 +70,116 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [] }) =>
         );
     }
 
-    return (
-        <div className={styles['results-container']}>
-            <h2>Assessment Report</h2>
-            {results.map((result, index) => {
-                if (result.status === 'error') {
-                    return (
-                        <div key={index} className={`${styles['result-item']} ${styles.error}`}>
-                            <div className={styles['error-banner']}>
-                                Failed to generate report: {result.error || 'Unknown error'}
-                            </div>
+    const getQualityClass = (quality: string): string => {
+        switch (quality?.toUpperCase()) {
+            case 'ADEQUATE':
+                return styles['quality-adequate'];
+            case 'INADEQUATE':
+                return styles['quality-inadequate'];
+            default:
+                return styles['quality-needs-review'];
+        }
+    };
+
+    const renderTableView = () => (
+        <div className={styles['table-container']}>
+            <table className={styles['assessment-table']}>
+                <thead>
+                    <tr>
+                        {tableCols.map((col, index) => (
+                            <th key={index} className={styles['table-header']}>
+                                {col.replace('_', ' ')}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {tableData.map((row, rowIndex) => (
+                        <tr key={rowIndex} className={styles['table-row']}>
+                            {tableCols.map((col, colIndex) => (
+                                <td
+                                    key={`${rowIndex}-${colIndex}`}
+                                    className={`${styles['table-cell']} ${col === 'Answer_Quality' ? getQualityClass(row[col as keyof TableRow]) : ''}`}
+                                >
+                                    {row[col as keyof TableRow] || 'N/A'}
+                                </td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+
+    const renderCardView = () => (
+        <div className={styles['cards-container']}>
+            {tableData.map((row, index) => (
+                <div key={index} className={styles['result-card']}>
+                    <div className={styles['card-header']}>
+                        <h3>Question</h3>
+                        <p>{row.Question}</p>
+                    </div>
+                    <div className={styles['card-content']}>
+                        <div className={styles['content-row']}>
+                            <strong>Answer:</strong>
+                            <p>{row.Answer || 'N/A'}</p>
                         </div>
-                    );
-                }
-
-                const parsedAnswer = parseAnswer(result.answer);
-
-                return (
-                    <div key={index} className={`${styles['result-item']} ${styles.success}`}>
-                        <div className={styles['wf-assessment-card']}>
-                            <div className={styles['wf-assessment-header']}>
-                                <h3>Control ID: {result.controlId}</h3>
-                                <div className={styles['wf-question']}>Q: {result.question}</div>
-                            </div>
-                            <div className={styles['result-details']}>
-                                <div className={styles['wf-content-row']}>
-                                    <strong>Answer:</strong>
-                                    <span className={styles['wf-answer-text']}>
-                                        {parsedAnswer.Answer || 'No answer provided'}
-                                    </span>
-                                </div>
-
-                                <div className={styles['wf-content-row']}>
-                                    <strong>Quality:</strong>
-                                    <span className={getQualityClass(parsedAnswer.Quality)}>
-                                        {parsedAnswer.Quality || 'NEEDS_REVIEW'}
-                                    </span>
-                                </div>
-
-                                <div className={styles['wf-content-row']}>
-                                    <strong>Source:</strong>
-                                    <span>{parsedAnswer.Source || 'N/A'}</span>
-                                </div>
-
-                                <div className={styles['wf-content-row']}>
-                                    <strong>Summary:</strong>
-                                    <span>{parsedAnswer.Summary || 'No summary available'}</span>
-                                </div>
-
-                                <div className={styles['wf-content-row']}>
-                                    <strong>Reference:</strong>
-                                    <span>{parsedAnswer.Reference || 'N/A'}</span>
-                                </div>
-                            </div>
+                        <div className={styles['content-row']}>
+                            <strong>Quality:</strong>
+                            <span className={getQualityClass(row.Answer_Quality)}>
+                                {row.Answer_Quality || 'N/A'}
+                            </span>
+                        </div>
+                        <div className={styles['content-row']}>
+                            <strong>Source:</strong>
+                            <p>{row.Answer_Source || 'N/A'}</p>
+                        </div>
+                        <div className={styles['content-row']}>
+                            <strong>Summary:</strong>
+                            <p>{row.Summary || 'N/A'}</p>
+                        </div>
+                        <div className={styles['content-row']}>
+                            <strong>Reference:</strong>
+                            <p>{row.Reference || 'N/A'}</p>
                         </div>
                     </div>
-                );
-            })}
+                </div>
+            ))}
+        </div>
+    );
+
+    return (
+        <div className={styles['results-container']}>
+            <div className={styles['results-header']}>
+                <h2>Assessment Report</h2>
+                <div className={styles['view-controls']}>
+                    <ButtonGroup>
+                        <Button
+                            selected={viewMode === 'table'}
+                            onClick={() => setViewMode('table')}
+                        >
+                            Table View
+                        </Button>
+                        <Button
+                            selected={viewMode === 'card'}
+                            onClick={() => setViewMode('card')}
+                        >
+                            Card View
+                        </Button>
+                    </ButtonGroup>
+                </div>
+            </div>
+
+            {viewMode === 'table' ? renderTableView() : renderCardView()}
+
+            <div className={styles['results-footer']}>
+                <Button
+                    onClick={onStartOver}
+                    className={styles['start-over-button']}
+                >
+                    Start Over
+                </Button>
+            </div>
         </div>
     );
 }; 
