@@ -179,46 +179,75 @@ export async function validateDesignElement(payload: LLMPayload): Promise<Design
  */
 export async function GetLLMEvidence(payload: EvidencePayload): Promise<LLMEvidenceResult> {
     try {
-        console.log('Sending evidence to LLM API:', {
+        // Log the full payload structure (excluding actual base64 content for readability)
+        console.log('🚀 Starting LLM API call with payload:', {
             controlId: payload.controlId,
             designElementId: payload.designElementId,
-            evidenceCount: payload.evidences.length
+            prompt: payload.prompt,
+            question: payload.question,
+            evidenceCount: payload.evidences.length,
+            evidenceSizes: payload.evidences.map(e => e.length)
         });
 
-        const response = await fetch('/api/validateDesignElements', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + (process.env.REACT_APP_API_TOKEN || 'mock-token')
-            },
-            body: JSON.stringify({
+        // Log token retrieval attempt
+        console.log('📝 Retrieving authentication token...');
+        const token = await getToken();
+        console.log('✅ Token retrieved successfully');
+
+        // Log the API endpoint being called
+        console.log('🔗 Calling API endpoint: /api/validateDesignElements');
+
+        const { data } = await axios.post<Omit<LLMEvidenceResult, 'status'>>(
+            '/api/validateDesignElements',
+            {
                 controlId: payload.controlId,
                 designElementId: payload.designElementId,
                 prompt: payload.prompt,
                 question: payload.question,
                 evidences: payload.evidences
-            })
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                // Add timeout and validate status
+                timeout: 30000,
+                validateStatus: (status) => {
+                    console.log(`📊 Received status code: ${status}`);
+                    return status >= 200 && status < 300;
+                }
+            }
+        );
+
+        console.log('✅ API call successful, response:', {
+            controlId: data.controlId,
+            designElementId: data.designElementId,
+            answerLength: data.answer?.length || 0
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json() as { designElementId: string; answer: string };
-
-        console.log('LLM API response received:', data);
-
         return {
+            ...data,
             controlId: payload.controlId,
             designElementId: payload.designElementId,
             prompt: payload.prompt,
             question: payload.question,
-            answer: data.answer || '',
-            status: 'success'
+            status: 'success' as const
         };
 
     } catch (error: unknown) {
-        console.error('LLM API error:', error);
+        console.error('❌ LLM API error:', error);
+
+        // Enhanced error logging
+        if (axios.isAxiosError(error)) {
+            console.error('📌 Detailed Axios error information:');
+            console.error('- Request URL:', error.config?.url);
+            console.error('- Request Method:', error.config?.method);
+            console.error('- Status Code:', error.response?.status);
+            console.error('- Status Text:', error.response?.statusText);
+            console.error('- Response Data:', error.response?.data);
+            console.error('- Request Headers:', error.config?.headers);
+        }
 
         let errorMessage = 'Unknown error occurred';
         if (error instanceof Error) {
@@ -266,7 +295,7 @@ export async function processControlsWithEvidence(
 
         try {
             // Get design elements for this CID
-            const [isValid, designElements] = getDesignElementsByCID(control.cid);
+            const [isValid, designElements] = await getDesignElementsByCID(control.cid);
 
             if (!isValid || designElements.length === 0) {
                 const errorMsg = `No design elements found for Control ID: ${control.cid}`;
@@ -482,4 +511,7 @@ export async function submitPromptForControl(
             error: error instanceof Error ? error.message : 'Failed to submit prompt'
         };
     }
-} 
+}
+
+// Export the type from promptService
+export type { QuestionPrompt } from './promptService'; 
