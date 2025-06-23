@@ -1,404 +1,776 @@
-import React, { useState, useRef } from 'react';
-import { processZipFile, validateZipStructure, ControlEvidence } from '../services/zipFileProcessor';
-import { processControlsWithEvidence, LLMEvidenceResult } from '../services/evidenceService';
-import '../fullvendorassessment.css';
+import React, { useRef, useState } from "react";
+import { generateMockReport, ReportItem, wellsFargoTheme } from "./utils/generate_report";
+import { processZipFile } from "./services/zipFileProcessor";
+import { processControlsWithEvidence, GetLLMEvidence, submitPromptForControl, type ApiResponse } from "./services/evidenceService";
+import { getDesignElementsByCID } from "./services/promptService";
 import { Upload } from "@progress/kendo-react-upload";
 import { Button } from "@progress/kendo-react-buttons";
 import { Grid, GridColumn } from "@progress/kendo-react-grid";
 import { ExcelExport } from "@progress/kendo-react-excel-export";
 import { Dialog } from "@progress/kendo-react-dialogs";
-import { ProgressBar } from '@progress/kendo-react-progressbars';
+import { ZipContentsDisplay } from "./components/ZipContentsDisplay";
+import { ReportDisplay } from "./components/ReportDisplay";
+import { ProgressDisplay } from "./components/ProgressDisplay";
 import "@progress/kendo-theme-default/dist/all.css";
+import styles from './assessment.module.css';
+import { ProgressBar } from '@progress/kendo-react-progressbars';
+import './App.css';
+import axios from "axios";
 
-interface AssessmentProps {
-    className?: string;
+// Enhanced ReportItem interface to match LLM results
+interface EnhancedReportItem extends ReportItem {
+    controlId?: string;  // This is Domain_Id
+    designElementId?: string;
+    status?: 'success' | 'error';
+    processingError?: string;
+    evidence?: string[];
 }
 
 interface ProcessingProgress {
     current: number;
     total: number;
     currentControl: string;
-    phase: 'upload' | 'processing' | 'llm' | 'complete';
+    phase: 'zip_processing' | 'llm_processing' | 'complete';
 }
 
-interface AssessmentResult {
+interface ProcessedFile {
+    name: string;
+    type: string;
+    base64: string;
+    fullPath?: string;
+}
+
+interface ProcessedZipResult {
+    controls: Array<{
+        cid: string;
+        evidences: ProcessedFile[];
+    }>;
+    errors: string[];
+    totalFiles: number;
+    totalControls: number;
+}
+
+interface FileContent {
+    fileName: string;
+    type: string;
+    extension?: string;
+    fullPath?: string;
+}
+
+interface ProcessedFolder {
+    name: string;
+    contents: FileContent[];
+}
+
+interface ControlResult {
     controlId: string;
-    controlName: string;
-    designElementId: string;
-    question: string;
-    answer: string;
-    status: 'success' | 'error';
+    isLoading: boolean;
     error?: string;
+    results: ApiResponse[];
 }
 
-const Assessment: React.FC<AssessmentProps> = ({ className = '' }) => {
-    const fileInputRef = useRef<HTMLInputElement>(null);
+const FullVendorAnalysis: React.FC = () => {
+    const excelExportRef = useRef<ExcelExport | null>(null);
 
-    const [zipFile, setZipFile] = useState<File | null>(null);
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [progress, setProgress] = useState<ProcessingProgress | null>(null);
-    const [results, setResults] = useState<AssessmentResult[]>([]);
-    const [errors, setErrors] = useState<string[]>([]);
-    const [showResults, setShowResults] = useState(false);
-    const [processingStats, setProcessingStats] = useState<{
-        totalControls: number;
-        successCount: number;
-        errorCount: number;
-    } | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [report, setReport] = useState<EnhancedReportItem[]>([]);
+    const [showReport, setShowReport] = useState(false);
+    const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+    const [zipUploaded, setZipUploaded] = useState(false);
+    const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
+    const [zipContents, setZipContents] = useState<{ folders: ProcessedFolder[] }>({ folders: [] });
+    const [showZipContents, setShowZipContents] = useState(false);
+    const [isViewingContents, setIsViewingContents] = useState(false);
+    const [currentZipFile, setCurrentZipFile] = useState<File | null>(null);
+    const [controlResults, setControlResults] = useState<Record<string, ControlResult>>({});
 
-    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) {
-            setZipFile(null);
+    const handleUploadSuccess = (event: any) => {
+        const files = event.affectedFiles || [];
+        if (files.length === 0) {
+            console.log('No file selected');
+            setZipUploaded(false);
+            setZipContents({ folders: [] });
+            setCurrentZipFile(null);
             return;
         }
 
-        try {
-            setProgress({ current: 0, total: 1, currentControl: 'Validating zip structure...', phase: 'upload' });
+        const zipFile = files[0].getRawFile();
+        if (!zipFile) {
+            console.log('Could not get raw file');
+            setZipUploaded(false);
+            setZipContents({ folders: [] });
+            setCurrentZipFile(null);
+            return;
+        }
 
-            // Validate zip structure
-            const validation = await validateZipStructure(file);
-            if (!validation.isValid) {
-                setErrors(validation.errors);
-                setZipFile(null);
-                setProgress(null);
-                return;
+        setCurrentZipFile(zipFile);
+        setZipUploaded(true);
+        setShowZipContents(false);
+        setIsViewingContents(false);
+        handleZipFileChange(zipFile);
+    };
+
+    const handleZipFileChange = async (zipFile: File) => {
+        console.log('File selected:', {
+            name: zipFile.name,
+            size: zipFile.size,
+            type: zipFile.type
+        });
+
+        try {
+            console.log('Starting ZIP file processing...');
+            const result = await processZipFile(zipFile) as ProcessedZipResult;
+
+            console.log('ZIP processing result:', {
+                controlsCount: result.controls?.length || 0,
+                totalFiles: result.totalFiles,
+                totalControls: result.totalControls,
+                errors: result.errors
+            });
+
+            if (result.controls) {
+                console.log('Found controls:', result.controls.map(control => ({
+                    id: control.cid,
+                    evidenceCount: control.evidences?.length || 0,
+                    evidenceTypes: control.evidences?.map(e => e.type)
+                })));
             }
 
-            setZipFile(file);
-            setErrors([]);
-            setProgress(null);
-        } catch (error) {
-            setErrors([error instanceof Error ? error.message : 'Failed to validate zip file']);
-            setZipFile(null);
-            setProgress(null);
+            // Display all contents without validation
+            const processedFolders: ProcessedFolder[] = [];
+
+            // Process structured folders
+            if (result.controls && result.controls.length > 0) {
+                console.log('Processing structured folders...');
+                const folderResults = result.controls.map(control => {
+                    const folderContent = {
+                        name: control.cid,  // Using Domain_Id as folder name
+                        contents: control.evidences
+                            .filter(evidence => evidence.type.toLowerCase() === 'pdf' ||
+                                ['jpg', 'jpeg', 'png', 'gif'].includes(evidence.type.toLowerCase()))
+                            .map(evidence => ({
+                                fileName: evidence.name,
+                                type: evidence.type.toLowerCase(),
+                                extension: evidence.type.toLowerCase(),
+                                fullPath: evidence.fullPath
+                            }))
+                    };
+                    console.log(`Folder "${folderContent.name}" contains ${folderContent.contents.length} files`);
+                    return folderContent;
+                });
+                processedFolders.push(...folderResults);
+            } else {
+                console.log('No structured folders found in the ZIP');
+            }
+
+            // Sort folders alphabetically
+            processedFolders.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Sort files within each folder
+            processedFolders.forEach(folder => {
+                folder.contents.sort((a, b) => a.fileName.localeCompare(b.fileName));
+            });
+
+            console.log('Final processed structure:', {
+                totalFolders: processedFolders.length,
+                folders: processedFolders.map(f => ({
+                    name: f.name,
+                    fileCount: f.contents.length,
+                    files: f.contents.map(c => c.fileName)
+                }))
+            });
+
+            setZipContents({ folders: processedFolders });
+            setError(null);
+
+            console.log('ZIP contents successfully set to state');
+        } catch (err) {
+            console.error('Error processing ZIP file:', err);
+            if (err instanceof Error) {
+                console.error('Error details:', {
+                    message: err.message,
+                    stack: err.stack
+                });
+            }
+            setError("Failed to read ZIP file. Please ensure it's a valid ZIP archive.");
+            setZipUploaded(false);
+            setZipContents({ folders: [] });
         }
     };
 
-    const handleProcessAssessment = async () => {
-        if (!zipFile) {
-            setErrors(['Please select a zip file first']);
-            return;
-        }
-
-        setIsProcessing(true);
-        setErrors([]);
-        setResults([]);
-        setShowResults(false);
-        setProcessingStats(null);
+    /**
+     * Enhanced processDesignElements function with sequential LLM processing
+     * Processes each control and its design elements one by one
+     */
+    const processDesignElements = async (zipFile: File): Promise<EnhancedReportItem[]> => {
+        const processedReports: EnhancedReportItem[] = [];
 
         try {
-            // Phase 1: Extract and process zip file
-            setProgress({ current: 0, total: 1, currentControl: 'Extracting zip contents...', phase: 'processing' });
-
-            const zipResult = await processZipFile(zipFile);
-
-            if (zipResult.errors.length > 0) {
-                setErrors(zipResult.errors);
-            }
-
-            if (zipResult.controls.length === 0) {
-                setErrors(['No valid controls found in zip file']);
-                setIsProcessing(false);
-                setProgress(null);
-                return;
-            }
-
-            // Phase 2: Process controls with LLM
-            setProgress({
+            console.log('Starting evidence processing...');
+            // Phase 1: Extract and process ZIP file
+            setProcessingProgress({
                 current: 0,
-                total: zipResult.controls.length,
-                currentControl: 'Starting LLM processing...',
-                phase: 'llm'
+                total: 1,
+                currentControl: 'Extracting ZIP file contents...',
+                phase: 'zip_processing'
             });
 
-            const processedResult = await processControlsWithEvidence(
-                zipResult.controls,
-                (progressUpdate) => {
-                    setProgress({
-                        current: progressUpdate.current,
-                        total: progressUpdate.total,
-                        currentControl: progressUpdate.currentControl,
-                        phase: 'llm'
-                    });
-                }
+            const zipResult = await processZipFile(zipFile) as ProcessedZipResult;
+            console.log('ZIP extraction complete:', {
+                controlsCount: zipResult.controls?.length || 0,
+                totalFiles: zipResult.totalFiles,
+                totalControls: zipResult.totalControls
+            });
+
+            // Process structured folders
+            if (!zipResult.controls || zipResult.controls.length === 0) {
+                throw new Error('No valid controls found in ZIP file');
+            }
+
+            console.log('Processing controls/folders...');
+            const validControls = zipResult.controls.filter(control =>
+                control.evidences && control.evidences.some(evidence =>
+                    evidence.type.toLowerCase() === 'pdf'
+                )
             );
 
-            // Transform results for display
-            const assessmentResults: AssessmentResult[] = processedResult.results.map(result => ({
-                controlId: result.controlId,
-                controlName: zipResult.controls.find(c => c.cid === result.controlId)?.controlName || 'Unknown',
-                designElementId: result.designElementId,
-                question: result.question,
-                answer: result.answer,
-                status: result.status,
-                error: result.error
-            }));
+            console.log(`Found ${validControls.length} valid controls with evidence files`);
 
-            setResults(assessmentResults);
-            setProcessingStats({
-                totalControls: zipResult.controls.length,
-                successCount: processedResult.successCount,
-                errorCount: processedResult.errorCount
-            });
-
-            if (processedResult.errors.length > 0) {
-                setErrors(prev => [...prev, ...processedResult.errors]);
+            if (validControls.length === 0) {
+                throw new Error('No valid controls with PDF evidence files found');
             }
 
-            setShowResults(true);
-            setProgress({ current: 1, total: 1, currentControl: 'Assessment complete!', phase: 'complete' });
+            // Phase 2: Process each control through LLM
+            setProcessingProgress({
+                current: 0,
+                total: validControls.length,
+                currentControl: 'Starting LLM processing...',
+                phase: 'llm_processing'
+            });
+
+            let currentIndex = 0;
+            const totalControls = validControls.length;
+
+            for (const control of validControls) {
+                currentIndex++;
+                console.log(`Processing control ${currentIndex}/${totalControls}: ${control.cid}`);
+
+                try {
+                    // Get design elements for this Domain_Id
+                    const [isValid, designElements] = await getDesignElementsByCID(control.cid);
+                    console.log(`Design elements for ${control.cid}:`, {
+                        isValid,
+                        elementCount: designElements.length,
+                        elements: designElements.map(e => e.id)
+                    });
+
+                    if (!isValid || designElements.length === 0) {
+                        const errorMsg = `No design elements found for Domain_Id: ${control.cid}`;
+                        console.warn(errorMsg);
+                        processedReports.push({
+                            id: control.cid,
+                            controlId: control.cid,
+                            designElementId: `${control.cid}-error`,
+                            status: 'error',
+                            processingError: errorMsg,
+                            quality: 'INADEQUATE',
+                            answer: 'NO',
+                            evidence: [],
+                            question: 'No design elements found',
+                            source: 'System',
+                            summary: errorMsg,
+                            reference: 'N/A'
+                        });
+                        continue;
+                    }
+
+                    // Process each design element
+                    for (const element of designElements) {
+                        try {
+                            setProcessingProgress({
+                                current: currentIndex,
+                                total: totalControls,
+                                currentControl: `${control.cid} - Processing ${element.id}`,
+                                phase: 'llm_processing'
+                            });
+
+                            // Prepare evidence payload - reuse existing base64 from zipFileProcessor
+                            const payload = {
+                                controlId: control.cid,
+                                designElementId: element.id,
+                                prompt: element.prompt,
+                                question: element.question,
+                                evidences: control.evidences
+                                    .filter(e => e.type.toLowerCase() === 'pdf')
+                                    .map(e => e.base64)
+                            };
+
+                            console.log(`Sending payload for ${element.id}:`, {
+                                controlId: payload.controlId,
+                                designElementId: payload.designElementId,
+                                evidenceCount: payload.evidences.length
+                            });
+
+                            // Process through LLM
+                            const llmResult = await GetLLMEvidence(payload);
+                            console.log(`LLM result for ${element.id}:`, {
+                                status: llmResult.status,
+                                hasAnswer: !!llmResult.answer,
+                                error: llmResult.error
+                            });
+
+                            // Add to processed reports
+                            processedReports.push({
+                                id: element.id,
+                                controlId: control.cid,
+                                designElementId: element.id,
+                                status: llmResult.status,
+                                processingError: llmResult.error,
+                                quality: llmResult.status === 'success' ? 'ADEQUATE' : 'INADEQUATE',
+                                answer: llmResult.status === 'success' ? 'YES' : 'NO',
+                                evidence: control.evidences.map(e => e.name),
+                                question: element.question,
+                                source: control.cid,  // Changed from controlName to cid
+                                summary: llmResult.answer || llmResult.error || 'No response received',
+                                reference: `Domain_Id: ${control.cid}`  // Changed from Control to Domain_Id
+                            });
+
+                            // Add small delay to prevent overwhelming the API
+                            await new Promise(resolve => setTimeout(resolve, 500));
+
+                        } catch (error) {
+                            const errorMsg = `Failed to process ${control.cid} - ${element.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                            console.error(errorMsg);
+                            processedReports.push({
+                                id: element.id,
+                                controlId: control.cid,
+                                designElementId: element.id,
+                                status: 'error',
+                                processingError: errorMsg,
+                                quality: 'INADEQUATE',
+                                answer: 'NO',
+                                evidence: control.evidences.map(e => e.name),
+                                question: element.question,
+                                source: control.cid,  // Changed from controlName to cid
+                                summary: errorMsg,
+                                reference: `Domain_Id: ${control.cid}`  // Changed from Control to Domain_Id
+                            });
+                        }
+                    }
+
+                } catch (error) {
+                    const errorMsg = `Failed to get design elements for ${control.cid}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                    console.error(errorMsg);
+                    processedReports.push({
+                        id: control.cid,
+                        controlId: control.cid,
+                        designElementId: `${control.cid}-error`,
+                        status: 'error',
+                        processingError: errorMsg,
+                        quality: 'INADEQUATE',
+                        answer: 'NO',
+                        evidence: control.evidences.map(e => e.name),
+                        question: 'Failed to get design elements',
+                        source: control.cid,  // Changed from controlName to cid
+                        summary: errorMsg,
+                        reference: `Domain_Id: ${control.cid}`  // Changed from Control to Domain_Id
+                    });
+                }
+            }
+
+            setProcessingProgress({
+                current: totalControls,
+                total: totalControls,
+                currentControl: 'Processing complete!',
+                phase: 'complete'
+            });
+
+            return processedReports;
 
         } catch (error) {
-            setErrors([error instanceof Error ? error.message : 'Failed to process assessment']);
-        } finally {
-            setIsProcessing(false);
-            setTimeout(() => setProgress(null), 2000);
+            console.error('Error in processDesignElements:', error);
+            throw error;
         }
     };
 
-    const downloadResults = () => {
-        if (results.length === 0) return;
+    const handleGenerateReport = async () => {
+        if (!zipUploaded || !currentZipFile) {
+            setError("Please upload a zip file first.");
+            return;
+        }
 
-        const headers = "Control ID,Control Name,Design Element ID,Question,Answer,Status,Error\n";
-        const rows = results.map(result => {
-            const question = result.question.replace(/"/g, '""');
-            const answer = result.answer.replace(/"/g, '""');
-            const error = (result.error || '').replace(/"/g, '""');
+        setError(null);
+        setReport([]);
+        setShowReport(false);
+        setLoading(true);
+        setProcessingProgress(null);
 
-            return `"${result.controlId}","${result.controlName}","${result.designElementId}","${question}","${answer}","${result.status}","${error}"`;
+        try {
+            console.log('Starting enhanced report generation with LLM integration...');
+
+            // Call the enhanced processDesignElements function
+            const enhancedReport = await processDesignElements(currentZipFile);
+
+            setReport(enhancedReport);
+            setShowReport(true);
+
+            console.log(`Report generation completed. Generated ${enhancedReport.length} report items.`);
+
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : "Failed to generate report.";
+            console.error('Report generation failed:', err);
+            setError(errorMessage);
+        } finally {
+            setLoading(false);
+            // Clear progress after a short delay
+            setTimeout(() => setProcessingProgress(null), 3000);
+        }
+    };
+
+    const downloadExcel = () => {
+        if (!report || report.length === 0) return;
+
+        const headers = "Question,Answer,Quality,Source,Summary,Reference\n";
+        const rows = report.map(item => {
+            const question = item.question.replace(/"/g, '""');
+            const summary = item.summary.replace(/"/g, '""');
+            const source = item.source.replace(/"/g, '""');
+            const reference = item.reference.replace(/"/g, '""');
+
+            return `"${question}","${item.answer}","${item.quality}","${source}","${summary}","${reference}"`;
         }).join("\n");
 
         const csvContent = headers + rows;
+
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        link.href = url;
-        link.download = `vendor-assessment-${timestamp}.csv`;
+        link.setAttribute('href', url);
+        link.setAttribute('download', `risk-assessment-report-${timestamp}.csv`);
         link.style.visibility = 'hidden';
 
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(url);
     };
 
-    const resetAssessment = () => {
-        setZipFile(null);
-        setResults([]);
-        setErrors([]);
-        setShowResults(false);
-        setProgress(null);
-        setProcessingStats(null);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
+    const startOver = () => {
+        setReport([]);
+        setShowReport(false);
+        setError(null);
+        setLoading(false);
+        setZipUploaded(false);
+        setZipContents({ folders: [] });
+        setCurrentZipFile(null);
+    };
+
+    const toggleViewMode = () => {
+        setViewMode(viewMode === 'cards' ? 'table' : 'cards');
+    };
+
+    const getQualityBadgeClass = (quality: string) => {
+        const qualityClasses = {
+            'ADEQUATE': styles.badgeAdequate,
+            'INADEQUATE': styles.badgeInadequate,
+            'NEEDS_REVIEW': styles.badgeNeedsReview
+        };
+        return qualityClasses[quality as keyof typeof qualityClasses] || styles.badge;
+    };
+
+    const getAnswerBadgeClass = (answer: string) => {
+        const answerClasses = {
+            'YES': styles.badgeYes,
+            'NO': styles.badgeNo,
+            'PARTIAL': styles.badgePartial
+        };
+        return answerClasses[answer as keyof typeof answerClasses] || styles.badge;
     };
 
     const getStatusBadgeClass = (status: 'success' | 'error') => {
-        return status === 'success' ? 'badge bg-success' : 'badge bg-danger';
+        const statusClasses = {
+            'success': styles.badgeSuccess,
+            'error': styles.badgeError
+        };
+        return statusClasses[status] || styles.badge;
+    };
+
+    const handleViewZipContents = async () => {
+        if (!zipUploaded) {
+            setError('Please upload a ZIP file first');
+            return;
+        }
+
+        setIsViewingContents(true);
+        try {
+            setShowZipContents(true);
+        } catch (err) {
+            console.error('Error viewing ZIP contents:', err);
+            setError('Failed to view ZIP contents');
+        } finally {
+            setIsViewingContents(false);
+        }
+    };
+
+    const processDesignElementsForControl = async (controlId: string, files: File[]) => {
+        // Initialize or reset state for this control
+        setControlResults(prev => ({
+            ...prev,
+            [controlId]: {
+                controlId,
+                isLoading: true,
+                results: [],
+                error: undefined
+            }
+        }));
+
+        try {
+            // Convert files to base64 first to avoid doing it multiple times
+            const evidenceBase64 = await Promise.all(files.map(file => {
+                return new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const base64 = reader.result as string;
+                        const base64Clean = base64.split(',')[1];
+                        resolve(base64Clean);
+                    };
+                    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+                    reader.readAsDataURL(file);
+                });
+            }));
+
+            // Get prompts for this control
+            const [valid, prompts] = await getDesignElementsByCID(controlId);
+
+            if (!valid || !prompts || prompts.length === 0) {
+                throw new Error(`No prompts found for control ${controlId}`);
+            }
+
+            // Process each prompt
+            const results: ApiResponse[] = [];
+
+            for (let i = 0; i < prompts.length; i++) {
+                const { prompt, question } = prompts[i];
+
+                try {
+                    console.log(`Processing prompt ${i + 1}/${prompts.length} for ${controlId}`);
+
+                    // Prepare payload
+                    const payload = {
+                        controlId,
+                        designElementId: `${controlId}-${i}`,
+                        prompt,
+                        question,
+                        evidences: evidenceBase64
+                    };
+
+                    // Make API call
+                    const { data } = await axios.post<ApiResponse>(
+                        '/api/validateDesignElements',
+                        payload,
+                        {
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        }
+                    );
+
+                    results.push(data);
+                    console.log(`Completed prompt ${i + 1}/${prompts.length} for ${controlId}`);
+                } catch (error) {
+                    console.error(`Error processing prompt ${i + 1}:`, error);
+                    results.push({
+                        status: 'error',
+                        error: error instanceof Error ? error.message : 'Failed to process prompt'
+                    });
+                }
+            }
+
+            // Update state with results
+            setControlResults(prev => ({
+                ...prev,
+                [controlId]: {
+                    controlId,
+                    isLoading: false,
+                    results
+                }
+            }));
+
+        } catch (error) {
+            console.error(`Error processing control ${controlId}:`, error);
+            setControlResults(prev => ({
+                ...prev,
+                [controlId]: {
+                    controlId,
+                    isLoading: false,
+                    results: [],
+                    error: error instanceof Error ? error.message : 'Failed to process control'
+                }
+            }));
+        }
+    };
+
+    const renderResults = (controlId: string) => {
+        const result = controlResults[controlId];
+        if (!result) return null;
+
+        return (
+            <div className="control-results" key={controlId}>
+                <h3>Results for Control {controlId}</h3>
+
+                {result.isLoading && (
+                    <div className="loading">Processing prompts...</div>
+                )}
+
+                {result.error && (
+                    <div className="error">
+                        Error: {result.error}
+                    </div>
+                )}
+
+                {result.results.map((response, index) => (
+                    <div key={`${controlId}-${index}`} className={`result ${response.status}`}>
+                        <h4>Design Element {index + 1}</h4>
+                        {response.status === 'success' ? (
+                            <div className="answer">{response.answer}</div>
+                        ) : (
+                            <div className="error">{response.error}</div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
     };
 
     return (
-        <div className={`container mt-4 ${className}`}>
-            <div className="row justify-content-center">
-                <div className="col-lg-10">
-                    <div className="card shadow">
-                        <div className="card-header bg-primary text-white">
-                            <h2 className="mb-0">
-                                <i className="bi bi-shield-check me-2"></i>
-                                Vendor Security Assessment
-                            </h2>
-                        </div>
-                        <div className="card-body">
+        <div className="app-container">
+            <div className="text-center">
+                <h1 className={styles.appTitle}>Third Party Risk Evaluation Service</h1>
 
-                            {/* File Upload Section */}
-                            <div className="mb-4">
-                                <h5 className="card-title">Upload Evidence Package</h5>
-                                <div className="mb-3">
-                                    <label htmlFor="zipFile" className="form-label">
-                                        Select ZIP file containing control evidence organized by folders
-                                    </label>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        className="form-control"
-                                        id="zipFile"
-                                        accept=".zip"
-                                        onChange={handleFileUpload}
-                                        disabled={isProcessing}
+                {/* ZIP File Upload Section */}
+                <div className="row justify-content-center">
+                    <div className="col-md-6">
+                        <div className={styles.card}>
+                            <div className={styles.cardBody}>
+                                <h5 className={styles.cardTitle}>Upload ZIP File</h5>
+                                <div className={styles.uploadZone}>
+                                    <Upload
+                                        restrictions={{
+                                            allowedExtensions: ['.zip'],
+                                            maxFileSize: 100000000 // 100MB
+                                        }}
+                                        batch={false}
+                                        multiple={false}
+                                        onAdd={handleUploadSuccess}
+                                        saveUrl={''}
+                                        autoUpload={false}
+                                        withCredentials={false}
+                                        showActionButtons={false}
                                     />
-                                    <div className="form-text">
-                                        Ensure your ZIP file contains folders named after security controls (e.g., "access_control", "data_encryption")
-                                        with PDF evidence files inside each folder.
-                                    </div>
                                 </div>
-
-                                {zipFile && (
-                                    <div className="alert alert-success">
-                                        <i className="bi bi-check-circle me-2"></i>
-                                        <strong>File loaded:</strong> {zipFile.name} ({(zipFile.size / (1024 * 1024)).toFixed(2)} MB)
-                                    </div>
-                                )}
+                                <small className="text-muted d-block mt-2">
+                                    Upload a zip file with domain folders. Each folder must contain at least one PDF file and can include image files (JPG, PNG, GIF)
+                                </small>
                             </div>
-
-                            {/* Error Display */}
-                            {errors.length > 0 && (
-                                <div className="alert alert-danger">
-                                    <h6>Errors:</h6>
-                                    <ul className="mb-0">
-                                        {errors.map((error, index) => (
-                                            <li key={index}>{error}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-
-                            {/* Processing Progress */}
-                            {progress && (
-                                <div className="mb-4">
-                                    <div className="d-flex justify-content-between align-items-center mb-2">
-                                        <span className="fw-bold">
-                                            {progress.phase === 'upload' && 'Validating Upload'}
-                                            {progress.phase === 'processing' && 'Processing Files'}
-                                            {progress.phase === 'llm' && 'AI Analysis in Progress'}
-                                            {progress.phase === 'complete' && 'Complete'}
-                                        </span>
-                                        <span className="text-muted">{progress.current}/{progress.total}</span>
-                                    </div>
-                                    <div className="progress mb-2">
-                                        <div
-                                            className="progress-bar progress-bar-striped progress-bar-animated"
-                                            role="progressbar"
-                                            style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                                        ></div>
-                                    </div>
-                                    <small className="text-muted">{progress.currentControl}</small>
-                                </div>
-                            )}
-
-                            {/* Action Buttons */}
-                            <div className="d-flex gap-2 mb-4">
-                                <button
-                                    className="btn btn-primary"
-                                    onClick={handleProcessAssessment}
-                                    disabled={!zipFile || isProcessing}
-                                >
-                                    {isProcessing ? (
-                                        <>
-                                            <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <i className="bi bi-play-circle me-2"></i>
-                                            Start Assessment
-                                        </>
-                                    )}
-                                </button>
-
-                                {showResults && (
-                                    <>
-                                        <button
-                                            className="btn btn-success"
-                                            onClick={downloadResults}
-                                        >
-                                            <i className="bi bi-download me-2"></i>
-                                            Download Results
-                                        </button>
-                                        <button
-                                            className="btn btn-secondary"
-                                            onClick={resetAssessment}
-                                        >
-                                            <i className="bi bi-arrow-clockwise me-2"></i>
-                                            Start Over
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-
-                            {/* Processing Statistics */}
-                            {processingStats && (
-                                <div className="row mb-4">
-                                    <div className="col-md-4">
-                                        <div className="card text-center">
-                                            <div className="card-body">
-                                                <h5 className="card-title text-primary">{processingStats.totalControls}</h5>
-                                                <p className="card-text">Total Controls</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-md-4">
-                                        <div className="card text-center">
-                                            <div className="card-body">
-                                                <h5 className="card-title text-success">{processingStats.successCount}</h5>
-                                                <p className="card-text">Successful</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-md-4">
-                                        <div className="card text-center">
-                                            <div className="card-body">
-                                                <h5 className="card-title text-danger">{processingStats.errorCount}</h5>
-                                                <p className="card-text">Errors</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Results Display */}
-                            {showResults && results.length > 0 && (
-                                <div className="mt-4">
-                                    <h5 className="card-title mb-3">Assessment Results</h5>
-                                    <div className="table-responsive">
-                                        <table className="table table-striped table-hover">
-                                            <thead className="table-dark">
-                                                <tr>
-                                                    <th>Control ID</th>
-                                                    <th>Control Name</th>
-                                                    <th>Design Element</th>
-                                                    <th>Question</th>
-                                                    <th>Answer</th>
-                                                    <th>Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {results.map((result, index) => (
-                                                    <tr key={index}>
-                                                        <td>
-                                                            <code className="text-primary">{result.controlId}</code>
-                                                        </td>
-                                                        <td>{result.controlName}</td>
-                                                        <td>
-                                                            <small className="text-muted">{result.designElementId}</small>
-                                                        </td>
-                                                        <td style={{ maxWidth: '300px', fontSize: '0.9rem' }}>
-                                                            {result.question}
-                                                        </td>
-                                                        <td style={{ maxWidth: '400px', fontSize: '0.9rem' }}>
-                                                            {result.answer || (result.error && <span className="text-danger">Error: {result.error}</span>)}
-                                                        </td>
-                                                        <td>
-                                                            <span className={getStatusBadgeClass(result.status)}>
-                                                                {result.status}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
+                </div>
+
+                {error && (
+                    <div className={styles.alertDanger} role="alert">
+                        {error}
+                    </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="mt-4 d-flex justify-content-center gap-3">
+                    <Button
+                        disabled={!zipUploaded || isViewingContents}
+                        onClick={handleViewZipContents}
+                        className={isViewingContents ? styles.secondaryButton : styles.primaryButton}
+                    >
+                        {isViewingContents ? (
+                            <>
+                                <span className={styles.loadingSpinner}></span>
+                                <span className="ms-2">Viewing ZIP contents...</span>
+                            </>
+                        ) : (
+                            "View ZIP Contents"
+                        )}
+                    </Button>
+
+                    <Button
+                        onClick={handleGenerateReport}
+                        disabled={!zipUploaded || loading || !showZipContents}
+                        className={loading ? styles.secondaryButton : styles.primaryButton}
+                    >
+                        {loading ? (
+                            <>
+                                <span className={styles.loadingSpinner}></span>
+                                <span className="ms-2">Analyzing evidence files...</span>
+                            </>
+                        ) : (
+                            "Process Evidence Files"
+                        )}
+                    </Button>
+                </div>
+
+                {/* ZIP Contents Display */}
+                {showZipContents && zipContents.folders.length > 0 && !loading && !showReport && (
+                    <ZipContentsDisplay folders={zipContents.folders} />
+                )}
+
+                {/* Report Display */}
+                {showReport && report.length > 0 && (
+                    <div className="mt-4">
+                        <ReportDisplay
+                            report={report}
+                            onExportExcel={downloadExcel}
+                            onStartOver={startOver}
+                        />
+                    </div>
+                )}
+
+                {/* Processing Progress */}
+                {processingProgress && (
+                    <div className={styles.progressContainer}>
+                        <div className={styles.card}>
+                            <div className={styles.cardBody}>
+                                <div className="mb-3">
+                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                        <span className="fw-bold">
+                                            {processingProgress.phase === 'zip_processing' && 'Extracting ZIP contents...'}
+                                            {processingProgress.phase === 'llm_processing' && 'AI Analysis in Progress...'}
+                                            {processingProgress.phase === 'complete' && 'Processing Complete'}
+                                        </span>
+                                        <span className="text-muted">
+                                            {processingProgress.current}/{processingProgress.total}
+                                        </span>
+                                    </div>
+                                    <div className={styles.progressBar}>
+                                        <div
+                                            className={styles.progressFill}
+                                            style={{
+                                                width: `${(processingProgress.current / processingProgress.total) * 100}%`
+                                            }}
+                                        ></div>
+                                    </div>
+                                </div>
+                                <small className="text-muted">{processingProgress.currentControl}</small>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Results section */}
+                <div className="results-container">
+                    {Object.keys(controlResults).map(controlId => renderResults(controlId))}
                 </div>
             </div>
         </div>
     );
 };
 
-export default Assessment; 
+export default FullVendorAnalysis;
