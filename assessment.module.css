@@ -579,7 +579,11 @@ h6 {
 }
 
 .primaryButton {
-    composes: button;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
     background-color: var(--wf-red);
     border: 1px solid var(--wf-red);
     color: white;
@@ -591,7 +595,11 @@ h6 {
 }
 
 .secondaryButton {
-    composes: button;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
     background-color: var(--wf-gold);
     border: 1px solid var(--wf-gold);
     color: var(--wf-dark-gray);
@@ -644,63 +652,93 @@ h6 {
 }
 
 .badgeSuccess {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #E8F5E9;
     color: #2E7D32;
 }
 
 .badgeError {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #FFEBEE;
     color: var(--wf-red);
 }
 
 .badgeWarning {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #FFF3E0;
     color: #F57C00;
 }
 
 .badgeInfo {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #E3F2FD;
     color: #1976D2;
 }
 
 /* Quality Indicators */
 .badgeAdequate {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #E8F5E9;
     color: #2E7D32;
 }
 
 .badgeInadequate {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #FFEBEE;
     color: var(--wf-red);
 }
 
 .badgeNeedsReview {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #FFF3E0;
     color: #F57C00;
 }
 
 /* Answer Indicators */
 .badgeYes {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #E8F5E9;
     color: #2E7D32;
 }
 
 .badgeNo {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #FFEBEE;
     color: var(--wf-red);
 }
 
 .badgePartial {
-    composes: badge;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
     background-color: #FFF3E0;
     color: #F57C00;
 }
@@ -797,21 +835,27 @@ h6 {
 }
 
 .alertDanger {
-    composes: alert;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
     background-color: #FFEBEE;
     border: 1px solid #FFCDD2;
     color: var(--wf-red);
 }
 
 .alertSuccess {
-    composes: alert;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
     background-color: #E8F5E9;
     border: 1px solid #C8E6C9;
     color: #2E7D32;
 }
 
 .alertWarning {
-    composes: alert;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
     background-color: #FFF3E0;
     border: 1px solid #FFE0B2;
     color: #F57C00;
