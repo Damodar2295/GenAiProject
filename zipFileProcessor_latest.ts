@@ -10,8 +10,7 @@ export interface ExtractedFile {
 }
 
 export interface ControlEvidence {
-    cid: string;
-    controlName: string;
+    cid: string;  // This is now Domain_Id
     evidences: ExtractedFile[];
 }
 
@@ -22,21 +21,19 @@ export interface ProcessedZipResult {
     errors: string[];
 }
 
-// New interfaces for domain mapping functionality
+// Updated interface to only use Domain_Id
 interface DomainMapping {
-    domain_id: string;  // This will store Domain_Code
-    domain_name: string;  // This will store Domain_Name
+    domain_id: string;  // This will store Domain_Id
 }
 
 interface DomainToFilesMap {
     domainId: string;
-    domainName: string;
     files: string[];
 }
 
 export interface DomainMappingResult {
     mappings: Record<string, string[]>;  // domain_id -> file names
-    unmappedDomains: string[];           // domain names that couldn't be mapped
+    unmappedDomains: string[];           // folder names that couldn't be mapped
     errors: string[];
 }
 
@@ -54,7 +51,7 @@ interface DomainItem {
 const domain_list = (domainListModule as any).default || domainListModule as unknown as DomainItem[];
 
 // Cache for domain mappings to avoid repeated processing
-let domainMappingCache: Map<string, DomainMapping> | null = null;
+let domainMappingCache: Map<string, string> | null = null;
 
 /**
  * Normalizes file paths to use forward slashes consistently
@@ -74,15 +71,15 @@ function getFolderName(path: string): string {
 
 /**
  * Loads domain mappings from imported domain_list.json
- * Returns a Map of normalized domain names to their domain mappings
+ * Returns a Map of normalized folder names to their Domain_Id
  */
-function loadDomainMappings(): Map<string, DomainMapping> {
+function loadDomainMappings(): Map<string, string> {
     if (domainMappingCache) {
         return domainMappingCache;
     }
 
     try {
-        const mappings = new Map<string, DomainMapping>();
+        const mappings = new Map<string, string>();
         let domainList: DomainItem[];
 
         // Handle both module.default and direct import cases
@@ -104,17 +101,17 @@ function loadDomainMappings(): Map<string, DomainMapping> {
             }
 
             const { Domain_Code, Domain_Name } = domain;
-            if (!Domain_Code || !Domain_Name || typeof Domain_Code !== 'string' || typeof Domain_Name !== 'string') {
+            if (!Domain_Code || typeof Domain_Code !== 'string') {
                 console.warn('Invalid domain data:', domain);
                 return;
             }
 
-            const mapping: DomainMapping = {
-                domain_id: Domain_Code,
-                domain_name: Domain_Name
-            };
-            const normalizedName = normalizeDomainName(Domain_Name);
-            mappings.set(normalizedName, mapping);
+            // Map both the Domain_Code and normalized Domain_Name to the Domain_Code
+            mappings.set(Domain_Code.toLowerCase(), Domain_Code);
+            if (Domain_Name) {
+                const normalizedName = normalizeDomainName(Domain_Name);
+                mappings.set(normalizedName, Domain_Code);
+            }
         });
 
         // Store in cache
@@ -156,13 +153,12 @@ function getFileType(fileName: string): 'pdf' | 'other' {
 }
 
 /**
- * Maps control folder name to CID using domain_list.json
+ * Maps folder name to Domain_Id using domain_list.json
  */
-function mapControlNameToCID(controlName: string): string | null {
+function mapFolderToDomainId(folderName: string): string | null {
     const mappings = loadDomainMappings();
-    const normalizedName = normalizeDomainName(controlName);
-    const mapping = mappings.get(normalizedName);
-    return mapping ? mapping.domain_id : null;
+    const normalizedName = normalizeDomainName(folderName);
+    return mappings.get(normalizedName) || null;
 }
 
 /**
@@ -181,153 +177,51 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
         const zip = new JSZip();
         const zipContent = await zip.loadAsync(zipFile);
 
-        console.log('ZIP file loaded successfully');
+        // Process each folder in the ZIP
+        for (const [path, file] of Object.entries(zipContent.files)) {
+            if (!file.dir) continue;
 
-        // Get all files and folders with normalized paths
-        const allPaths = Object.keys(zip.files).map(normalizePath);
-        console.log('All files in ZIP:', allPaths);
+            const folderName = getFolderName(path);
+            const domainId = mapFolderToDomainId(folderName);
 
-        // Find the root folder name (assuming there's only one root folder)
-        const rootFolders = allPaths
-            .filter(path => {
-                const parts = path.split('/').filter(Boolean);
-                return parts.length === 1 && zip.files[path].dir;
-            })
-            .map(path => path.replace('/', ''));
-
-        if (rootFolders.length === 0) {
-            throw new Error('No root folder found in ZIP file');
-        }
-
-        const rootFolder = rootFolders[0];
-        console.log('Found root folder:', rootFolder);
-
-        // Find domain folders (subfolders within the root folder)
-        const domainFolders = allPaths
-            .filter(path => {
-                const parts = path.split('/').filter(Boolean);
-                return parts.length === 2 && // Two levels deep (root/domain/)
-                    parts[0] === rootFolder && // Must be in root folder
-                    zip.files[path].dir; // Must be a directory
-            })
-            .map(getFolderName);
-
-        console.log('Found domain folders:', domainFolders);
-
-        // Group files by their domain folder
-        const folderContents: Record<string, string[]> = {};
-
-        allPaths.filter(path => !zip.files[path].dir).forEach(filePath => {
-            const parts = filePath.split('/').filter(Boolean);
-            if (parts.length === 3 && parts[0] === rootFolder) {
-                // File is in a domain folder
-                const domainFolder = parts[1];
-                if (!folderContents[domainFolder]) {
-                    folderContents[domainFolder] = [];
-                }
-                folderContents[domainFolder].push(filePath);
+            if (!domainId) {
+                console.warn(`Could not map folder "${folderName}" to a Domain_Id`);
+                result.errors.push(`Unmapped folder: ${folderName}`);
+                continue;
             }
-        });
 
-        console.log('Files grouped by domain folder:', folderContents);
+            // Process files in this folder
+            const folderFiles = Object.entries(zipContent.files)
+                .filter(([filePath]) => filePath.startsWith(path) && !zipContent.files[filePath].dir);
 
-        // Process each domain folder and its contents
-        for (const [folderName, folderFiles] of Object.entries(folderContents)) {
-            console.log(`Processing domain folder: ${folderName}`);
             const evidences: ExtractedFile[] = [];
+            for (const [filePath, fileEntry] of folderFiles) {
+                const content = await fileEntry.async('arraybuffer');
+                const fileName = getFolderName(filePath);
+                const fileType = getFileType(fileName);
+                const base64 = arrayBufferToBase64(content);
 
-            // Process each file in the folder
-            for (const filePath of folderFiles) {
-                try {
-                    console.log(`Processing file: ${filePath}`);
-                    const file = zip.files[filePath];
-                    const content = await file.async('arraybuffer');
-                    const fileName = filePath.split('/').pop() || filePath;
-                    const fileType = getFileType(fileName);
-                    const base64 = arrayBufferToBase64(content);
-
-                    evidences.push({
-                        name: fileName,
-                        content,
-                        type: fileType,
-                        base64,
-                        fullPath: filePath
-                    });
-
-                    result.totalFiles++;
-                    console.log(`Successfully processed file: ${fileName} (Path: ${filePath})`);
-                } catch (error) {
-                    const errorMsg = `Failed to process file ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-                    console.error(errorMsg);
-                    result.errors.push(errorMsg);
-                }
-            }
-
-            if (evidences.length > 0) {
-                // Map the domain folder name to a domain ID
-                const mappings = loadDomainMappings();
-                const normalizedName = normalizeDomainName(folderName);
-                const domainMapping = mappings.get(normalizedName);
-
-                const cid = domainMapping ? domainMapping.domain_id : folderName;
-                const controlName = domainMapping ? domainMapping.domain_name : folderName;
-
-                result.controls.push({
-                    cid,
-                    controlName,
-                    evidences
+                evidences.push({
+                    name: fileName,
+                    content,
+                    type: fileType,
+                    base64,
+                    fullPath: filePath
                 });
-                result.totalControls++;
-                console.log(`Added domain folder ${folderName} with ${evidences.length} files, mapped to CID: ${cid}`);
-            }
-        }
-
-        // Handle loose files (files directly in root folder)
-        const looseFiles = allPaths.filter(path => {
-            const parts = path.split('/').filter(Boolean);
-            return !zip.files[path].dir && parts.length === 2 && parts[0] === rootFolder;
-        });
-
-        if (looseFiles.length > 0) {
-            console.log('Processing loose files in root folder:', looseFiles);
-            const evidences: ExtractedFile[] = [];
-
-            for (const filePath of looseFiles) {
-                try {
-                    const file = zip.files[filePath];
-                    const content = await file.async('arraybuffer');
-                    const fileName = filePath.split('/').pop() || filePath;
-                    const fileType = getFileType(fileName);
-                    const base64 = arrayBufferToBase64(content);
-
-                    evidences.push({
-                        name: fileName,
-                        content,
-                        type: fileType,
-                        base64,
-                        fullPath: filePath
-                    });
-
-                    result.totalFiles++;
-                    console.log(`Successfully processed loose file: ${fileName}`);
-                } catch (error) {
-                    console.error(`Error processing loose file ${filePath}:`, error);
-                    result.errors.push(`Failed to process file "${filePath}": ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
             }
 
             if (evidences.length > 0) {
                 result.controls.push({
-                    cid: rootFolder,
-                    controlName: 'Root Files',
+                    cid: domainId,
                     evidences
                 });
-                result.totalControls++;
-                console.log(`Added ${evidences.length} loose files from root folder`);
             }
         }
 
-        console.log('Final processing result:', {
+        result.totalFiles = result.controls.reduce((sum, control) => sum + control.evidences.length, 0);
+        result.totalControls = result.controls.length;
+
+        console.log('ZIP processing complete:', {
             totalControls: result.totalControls,
             totalFiles: result.totalFiles,
             errors: result.errors
@@ -336,10 +230,8 @@ export async function processZipFile(zipFile: File): Promise<ProcessedZipResult>
         return result;
 
     } catch (error) {
-        const errorMsg = `Failed to process ZIP file: ${error instanceof Error ? error.message : 'Unknown error'}`;
-        console.error(errorMsg);
-        result.errors.push(errorMsg);
-        return result;
+        console.error('Error processing ZIP file:', error);
+        throw error;
     }
 }
 
@@ -367,7 +259,7 @@ export async function validateZipStructure(zipFile: File): Promise<{ isValid: bo
 
         // Check if any folders can be mapped to valid controls
         for (const folderName of foundFolders) {
-            const cid = mapControlNameToCID(folderName);
+            const cid = mapFolderToDomainId(folderName);
             if (cid) {
                 hasValidStructure = true;
                 break;
@@ -392,8 +284,8 @@ export async function validateZipStructure(zipFile: File): Promise<{ isValid: bo
 export function getAvailableControlMappings(): Record<string, string> {
     const mappings = loadDomainMappings();
     const record: Record<string, string> = {};
-    mappings.forEach((value: DomainMapping, key: string) => {
-        record[key] = value.domain_id;
+    mappings.forEach((value: string, key: string) => {
+        record[key] = value;
     });
     return record;
 }
@@ -407,13 +299,13 @@ export function getExpectedFolderNames(): Array<{ domainCode: string, domainName
 
     mappings.forEach((mapping, key) => {
         const expectedNames: string[] = [];
-        const domainName = mapping.domain_name;
+        const domainName = key;
 
         // Add the normalized domain name
         expectedNames.push(normalizeDomainName(domainName));
 
         result.push({
-            domainCode: mapping.domain_id,
+            domainCode: mapping,
             domainName: domainName,
             expectedFolderNames: expectedNames
         });
@@ -496,8 +388,8 @@ export async function mapDomainsToDomainIds(zipFile: File): Promise<DomainMappin
             }).map(path => path.split('/').pop() || path); // Get just the file names
 
             if (domainFiles.length > 0) {
-                result.mappings[domainMapping.domain_id] = domainFiles;
-                console.log(`Mapped domain "${folderName}" (${domainMapping.domain_id}) to ${domainFiles.length} files`);
+                result.mappings[domainMapping] = domainFiles;
+                console.log(`Mapped domain "${folderName}" (${domainMapping}) to ${domainFiles.length} files`);
             }
         }
 
@@ -519,10 +411,10 @@ export async function mapDomainsToDomainIds(zipFile: File): Promise<DomainMappin
 }
 
 // Helper function to get domain mapping information
-export function getAvailableDomainMappings(): DomainMapping[] {
+export function getAvailableDomainMappings(): string[] {
     try {
         const domainList = (domainListModule as any).default || domainListModule;
-        return domainList as DomainMapping[];
+        return Object.keys(loadDomainMappings());
     } catch (error) {
         console.error('Failed to get domain mappings:', error);
         return [];
