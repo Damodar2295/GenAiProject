@@ -211,8 +211,6 @@ export async function GetLLMEvidence(payload: EvidencePayload): Promise<LLMEvide
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                // Add timeout and validate status
-                timeout: 30000,
                 validateStatus: (status) => {
                     console.log(`📊 Received status code: ${status}`);
                     return status >= 200 && status < 300;
