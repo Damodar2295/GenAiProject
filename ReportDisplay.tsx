@@ -1,87 +1,107 @@
 import React from 'react';
-import { Grid, GridColumn } from "@progress/kendo-react-grid";
-import { Button } from "@progress/kendo-react-buttons";
+import { AssessmentResult, LLMAnswerResponse } from '../types/survey';
 import styles from '../assessment.module.css';
 
-interface ReportItem {
-    question: string;
-    answer: string;
-    quality: string;
-    source: string;
-    summary: string;
-    reference: string;
-}
-
 interface ReportDisplayProps {
-    report: ReportItem[];
-    onExportExcel: () => void;
-    onStartOver: () => void;
+    results?: AssessmentResult[];
 }
 
-export const ReportDisplay: React.FC<ReportDisplayProps> = ({
-    report,
-    onExportExcel,
-    onStartOver
-}) => {
-    const reportWithBadges = report.map(item => ({
-        ...item,
-        answerBadge: (
-            <span className={
-                item.answer === 'YES' ? styles.badgeYes :
-                    item.answer === 'NO' ? styles.badgeNo :
-                        styles.badgePartial
-            }>
-                {item.answer}
-            </span>
-        ),
-        qualityBadge: (
-            <span className={
-                item.quality === 'ADEQUATE' ? styles.badgeAdequate :
-                    item.quality === 'INADEQUATE' ? styles.badgeInadequate :
-                        styles.badgeNeedsReview
-            }>
-                {item.quality}
-            </span>
-        )
-    }));
+export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [] }) => {
+    const parseAnswer = (answer: string | LLMAnswerResponse): LLMAnswerResponse => {
+        if (typeof answer === 'string') {
+            try {
+                return JSON.parse(answer);
+            } catch (e) {
+                return {
+                    Answer: answer,
+                    Quality: 'NEEDS_REVIEW',
+                    Source: 'N/A',
+                    Summary: 'Unable to parse response',
+                    Reference: 'N/A'
+                };
+            }
+        }
+        return answer;
+    };
+
+    const getQualityClass = (quality: string): string => {
+        switch (quality?.toUpperCase()) {
+            case 'ADEQUATE':
+                return styles['wf-quality-adequate'];
+            case 'INADEQUATE':
+                return styles['wf-quality-inadequate'];
+            default:
+                return styles['wf-quality-needs-review'];
+        }
+    };
+
+    if (!results || results.length === 0) {
+        return (
+            <div className={styles['results-container']}>
+                <h2>Generated Report</h2>
+                <div className={styles['empty-state']}>
+                    <p>No assessment results available. Please upload a ZIP file and generate a report.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className={styles.card}>
-            <div className={styles.cardHeader}>
-                <div className="d-flex justify-content-between align-items-center">
-                    <h5 className="mb-0">Assessment Report</h5>
-                    <div>
-                        <Button
-                            onClick={onExportExcel}
-                            className={`${styles.secondaryButton} me-2`}
-                        >
-                            <span className="k-icon k-i-excel me-2"></span>
-                            Export to Excel
-                        </Button>
-                        <Button
-                            onClick={onStartOver}
-                            className={styles.primaryButton}
-                        >
-                            Start Over
-                        </Button>
+        <div className={styles['results-container']}>
+            <h2>Generated Report</h2>
+            {results.map((result, index) => {
+                if (result.status === 'error') {
+                    return (
+                        <div key={index} className={`${styles['result-item']} ${styles.error}`}>
+                            <div className={styles['error-banner']}>
+                                Failed to generate report: {result.error || 'Unknown error'}
+                            </div>
+                        </div>
+                    );
+                }
+
+                const parsedAnswer = parseAnswer(result.answer);
+
+                return (
+                    <div key={index} className={`${styles['result-item']} ${styles.success}`}>
+                        <div className={styles['wf-assessment-card']}>
+                            <div className={styles['wf-assessment-header']}>
+                                <h3>Q: {result.question}</h3>
+                            </div>
+                            <div className={styles['result-details']}>
+                                <div className={styles['wf-content-row']}>
+                                    <strong>Answer:</strong>
+                                    <span className={styles['wf-answer-text']}>
+                                        {parsedAnswer.Answer || 'No answer provided'}
+                                    </span>
+                                </div>
+
+                                <div className={styles['wf-content-row']}>
+                                    <strong>Quality:</strong>
+                                    <span className={getQualityClass(parsedAnswer.Quality)}>
+                                        {parsedAnswer.Quality || 'NEEDS_REVIEW'}
+                                    </span>
+                                </div>
+
+                                <div className={styles['wf-content-row']}>
+                                    <strong>Source:</strong>
+                                    <span>{parsedAnswer.Source || 'N/A'}</span>
+                                </div>
+
+                                <div className={styles['wf-content-row']}>
+                                    <strong>Summary:</strong>
+                                    <span>{parsedAnswer.Summary || 'No summary available'}</span>
+                                </div>
+
+                                <div className={styles['wf-content-row']}>
+                                    <strong>Reference:</strong>
+                                    <span>{parsedAnswer.Reference || 'N/A'}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div className={styles.cardBody}>
-                <div className={styles.grid}>
-                    <Grid
-                        data={reportWithBadges}
-                        style={{ height: 'auto' }}
-                    >
-                        <GridColumn field="question" title="Question" />
-                        <GridColumn field="answerBadge" title="Answer" width="100px" />
-                        <GridColumn field="qualityBadge" title="Quality" width="120px" />
-                        <GridColumn field="source" title="Source" width="150px" />
-                        <GridColumn field="summary" title="Summary" />
-                        <GridColumn field="reference" title="Reference" width="150px" />
-                    </Grid>
-                </div>
-            </div>
+                );
+            })}
         </div>
     );
 }; 

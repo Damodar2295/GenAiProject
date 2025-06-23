@@ -1,5 +1,4 @@
 import React from 'react';
-import { Grid, GridColumn } from "@progress/kendo-react-grid";
 import styles from '../assessment.module.css';
 
 interface FileContent {
@@ -7,7 +6,6 @@ interface FileContent {
     type: string;
     extension?: string;
     fullPath?: string;
-    path?: string;
 }
 
 interface ProcessedFolder {
@@ -19,47 +17,38 @@ interface ZipContentsDisplayProps {
     folders: ProcessedFolder[];
 }
 
-export const ZipContentsDisplay: React.FC<ZipContentsDisplayProps> = ({ folders }) => {
-    return (
-        <div className={styles.card}>
-            <div className={styles.cardHeader}>
-                <h5 className="mb-0">ZIP File Contents</h5>
+export const ZipContentsDisplay: React.FC<ZipContentsDisplayProps> = ({ folders = [] }) => {
+    const renderFolderContents = (folder: ProcessedFolder) => {
+        return (
+            <div className={styles.folderItem}>
+                <div className={styles.folderName}>
+                    {folder.name}
+                </div>
+                <ul className={styles.fileList}>
+                    {folder.contents.map((file, fileIndex) => (
+                        <li key={fileIndex} className={styles.fileItem}>
+                            <div className={styles.fileName}>
+                                {file.fileName}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
             </div>
-            <div className={styles.cardBody}>
-                {folders.map((folder, index) => {
-                    const gridData = folder.contents.map(file => ({
-                        ...file,
-                        path: file.fullPath
-                            ? file.fullPath.substring(folder.name.length + 1)
-                            : file.fileName,
-                        fileType: (
-                            <span className={styles.badge}>
-                                {file.type.toUpperCase()}
-                            </span>
-                        )
-                    }));
+        );
+    };
 
-                    return (
-                        <div key={index} className="mb-4">
-                            <h6 className={`${styles.folderTitle} d-flex align-items-center`}>
-                                <span className="k-icon k-i-folder me-2"></span>
-                                {folder.name}
-                            </h6>
-                            {folder.contents.length > 0 && (
-                                <div className={styles.grid}>
-                                    <Grid
-                                        data={gridData}
-                                        style={{ height: 'auto' }}
-                                    >
-                                        <GridColumn field="path" title="File Path" />
-                                        <GridColumn field="fileType" title="Type" width="100px" />
-                                    </Grid>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
+    return (
+        <div className={styles.folderStructure}>
+            <h3 className={styles.folderTitle}>Zip Contents</h3>
+            {folders && folders.length > 0 ? (
+                folders.map((folder, index) => (
+                    <div key={index}>
+                        {renderFolderContents(folder)}
+                    </div>
+                ))
+            ) : (
+                <p className={styles.emptyMessage}>No files found in the zip archive.</p>
+            )}
         </div>
     );
 }; 
