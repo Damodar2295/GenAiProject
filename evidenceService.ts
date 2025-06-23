@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getDesignElementsByCID } from './promptService';
+import { getToken } from './authService';
 
 export interface EvidencePayload {
     controlId: string;
@@ -27,25 +28,150 @@ export interface ProcessedEvidenceResult {
     errors: string[];
 }
 
+export interface DesignElementPrompt {
+    id: string;
+    prompt: string;
+    question: string;
+}
+
+export interface DesignElementResult {
+    controlId: string;
+    designElementId: string;
+    prompt: string;
+    question: string;
+    answer?: string;
+    status: 'success' | 'error';
+}
+
+export interface LLMPayload {
+    controlId: string;
+    designElementId: string;
+    prompt: string;
+    question: string;
+    evidences: string[];
+}
+
+export interface ApiResponse {
+    status: 'success' | 'error';
+    answer?: string;
+    error?: string;
+}
+
 /**
- * Converts files to base64 format for LLM processing
+ * Converts a single file to base64 string
  */
-export function convertFilesToBase64(files: File[]): Promise<string[]> {
-    return Promise.all(
-        files.map(file => {
-            return new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const result = reader.result as string;
-                    // Remove data URL prefix if present
-                    const base64 = result.includes(',') ? result.split(',')[1] : result;
-                    resolve(base64);
-                };
-                reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-                reader.readAsDataURL(file);
-            });
-        })
-    );
+async function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            const base64 = reader.result as string;
+            // Remove the data URL prefix (e.g., "data:application/pdf;base64,")
+            const base64Clean = base64.split(',')[1];
+            resolve(base64Clean);
+        };
+        reader.onerror = error => reject(error);
+    });
+}
+
+/**
+ * Converts multiple files to base64 strings
+ */
+async function convertFilesToBase64(files: File[]): Promise<string[]> {
+    try {
+        return await Promise.all(files.map(fileToBase64));
+    } catch (error) {
+        console.error('Error converting files to base64:', error);
+        throw new Error('Failed to convert files to base64');
+    }
+}
+
+/**
+ * Prepares files for the LLM payload by converting them to base64
+ */
+async function prepareEvidenceFiles(files: File[]): Promise<string[]> {
+    try {
+        const base64Promises = files.map(file => fileToBase64(file));
+        return await Promise.all(base64Promises);
+    } catch (error) {
+        console.error('Error preparing evidence files:', error);
+        throw new Error('Failed to prepare evidence files');
+    }
+}
+
+/**
+ * Prepares a complete payload for a single prompt
+ */
+export async function preparePayloadForPrompt(
+    controlId: string,
+    { id, prompt, question }: DesignElementPrompt,
+    files: File[],
+    index: number
+): Promise<LLMPayload> {
+    try {
+        const evidences = await prepareEvidenceFiles(files);
+        const designElementId = `${controlId}-${index + 1}`; // 1-based index for readability
+
+        return {
+            controlId,
+            designElementId,
+            prompt,
+            question,
+            evidences
+        };
+    } catch (error) {
+        console.error('Error preparing payload:', error);
+        throw new Error(`Failed to prepare payload for ${controlId}`);
+    }
+}
+
+/**
+ * Validates a single design element by sending it to the API
+ */
+export async function validateDesignElement(payload: LLMPayload): Promise<DesignElementResult> {
+    try {
+        const token = await getToken();
+
+        console.log('Payload sent:', {
+            controlId: payload.controlId,
+            designElementId: payload.designElementId,
+            prompt: payload.prompt,
+            question: payload.question,
+            evidenceCount: payload.evidences.length
+        });
+
+        const response = await fetch('/api/validateDesignElements', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`API request failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('Response received:', data);
+        console.log(`Validated element ${payload.designElementId}:`, data);
+
+        return {
+            ...data,
+            status: 'success' as const
+        };
+    } catch (error) {
+        console.error(`Error validating element ${payload.designElementId}:`, error);
+        return {
+            controlId: payload.controlId,
+            designElementId: payload.designElementId,
+            prompt: payload.prompt,
+            question: payload.question,
+            answer: '',
+            status: 'error' as const
+        };
+    }
 }
 
 /**
@@ -140,7 +266,7 @@ export async function processControlsWithEvidence(
 
         try {
             // Get design elements for this CID
-            const [isValid, designElements] = await getDesignElementsByCID(control.cid);
+            const [isValid, designElements] = getDesignElementsByCID(control.cid);
 
             if (!isValid || designElements.length === 0) {
                 const errorMsg = `No design elements found for Control ID: ${control.cid}`;
@@ -304,4 +430,56 @@ export function validateEvidenceFiles(files: File[]): { isValid: boolean; errors
         isValid: errors.length === 0,
         errors
     };
+}
+
+/**
+ * Submits a prompt for a control with evidence files
+ */
+export async function submitPromptForControl(
+    controlId: string,
+    prompt: string,
+    question: string,
+    evidenceFiles: File[],
+    designElementIndex: number
+): Promise<ApiResponse> {
+    try {
+        // Convert files to base64
+        const evidences = await convertFilesToBase64(evidenceFiles);
+
+        // Prepare the payload
+        const payload = {
+            controlId,
+            designElementId: `${controlId}-${designElementIndex}`,
+            prompt,
+            question,
+            evidences
+        };
+
+        // Log the payload (excluding base64 data for clarity)
+        console.log('Submitting payload:', {
+            ...payload,
+            evidences: `${evidences.length} files`
+        });
+
+        // Make the API call using existing endpoint
+        const { data } = await axios.post<ApiResponse>(
+            '/api/validateDesignElements',
+            payload,
+            {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        console.log(`Response for ${payload.designElementId}:`, data);
+        return data;
+
+    } catch (error) {
+        console.error(`Error submitting prompt for ${controlId}:`, error);
+        return {
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Failed to submit prompt'
+        };
+    }
 } 
