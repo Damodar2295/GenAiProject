@@ -1,446 +1,324 @@
 /* ===============================================
-   Vendor Assessment Theme Styles
+   Wells Fargo Vendor Assessment Theme
    =============================================== */
 
-/* CSS Custom Properties */
+/* 1. ROOT & COLOR DEFINITIONS */
 :root {
-    --primary: #c60c30;
-    /* Primary red */
-    --background: #f5f5f5;
-    /* Light gray background */
-    --text: #1c1c1c;
-    /* Dark text */
-    --border: #e0e0e0;
-    /* Border color */
-    --success: #00A651;
-    /* Success green */
-    --warning: #FF8C00;
-    /* Warning orange */
-    --white: #ffffff;
-    /* White */
+    --wf-red: #D41C2C;
+    --wf-gold: #FCCC44;
+    --wf-white: #FFFFFF;
+    --wf-black: #000000;
+    --wf-text: #333333;
+    --wf-background: #F8F9FA;
+    --wf-border-color: #dee2e6;
+    --wf-light-gray: #f1f1f1;
+
+    --success-green: #28a745;
+    --info-blue: #007bff;
+    /* A neutral blue for info, can be adjusted */
+    --warning-orange: #ffc107;
+
+    --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    --border-radius: 0.375rem;
 }
 
-/* ===== LAYOUT & STRUCTURE ===== */
-
-.background {
-    background-color: var(--background);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
+/* 2. GENERAL & LAYOUT STYLES */
+.container {
+    padding: 2rem;
+    background-color: var(--wf-background);
+    color: var(--wf-text);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    width: 90%;
+    max-width: 1800px;
+    margin: auto;
+    transition: all 0.3s ease-in-out;
 }
 
-.navbar {
-    background-color: var(--primary);
-    padding: 1.5rem 0;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.navbarBrand {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 0 2rem;
-}
-
-.mainTitle {
-    color: var(--white);
-    font-size: 2.25rem;
+.title {
+    color: var(--wf-red);
+    text-align: center;
+    margin-bottom: 2rem;
     font-weight: 600;
-    margin: 0;
+}
+
+/* 3. UPLOAD SECTION */
+.uploadSection {
+    background-color: var(--wf-white);
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-md);
+    margin-bottom: 2rem;
     text-align: center;
 }
 
-.mainContainer {
-    flex: 1;
-    max-width: 1400px;
-    margin: 2rem auto;
-    padding: 0 2rem;
+/* Using :global to override Kendo's default styles for the Upload component */
+:global(.k-upload-md) {
+    border-width: 0;
+    background-color: transparent;
 }
 
-/* ===== CARDS & CONTAINERS ===== */
+:global(.k-upload-button) {
+    display: none;
+    /* Hide default kendo upload button */
+}
 
-.contentCard {
-    background: var(--white);
-    border: none;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transition: box-shadow 0.3s ease;
+:global(.k-upload-files) {
+    margin-top: 1rem;
+}
+
+/* 4. ACTION BUTTONS & ALERTS */
+/* This style will be for the div wrapping the buttons */
+.actionButtons {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
     margin-bottom: 2rem;
 }
 
-.uploadCard {
-    border: none;
-    background: transparent;
-}
-
-.uploadArea {
-    border: 2px dashed var(--border);
-    background-color: var(--white);
-    border-radius: 12px;
-    padding: 3rem;
-    text-align: center;
-    transition: all 0.3s ease;
-    min-height: 200px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.uploadArea:hover {
-    border-color: var(--primary);
-    background-color: var(--background);
-}
-
-/* ===== BUTTONS ===== */
-
-.actionButton {
-    background-color: var(--primary) !important;
-    border-color: var(--primary) !important;
-    color: var(--white) !important;
-    padding: 0.75rem 1.5rem !important;
-    font-size: 1rem !important;
-    font-weight: 500 !important;
-    border-radius: 6px !important;
-    transition: all 0.3s ease !important;
-    min-width: 180px !important;
-}
-
-.actionButton:hover:not(:disabled) {
-    background-color: #a30926 !important;
-    border-color: #a30926 !important;
-    transform: translateY(-1px);
-}
-
-.actionButton:disabled {
-    opacity: 0.65 !important;
-    cursor: not-allowed !important;
-}
-
-.secondaryButton {
-    background-color: var(--white) !important;
-    border-color: var(--primary) !important;
-    color: var(--primary) !important;
-    padding: 0.75rem 1.5rem !important;
-    font-size: 1rem !important;
-    font-weight: 500 !important;
-    border-radius: 6px !important;
-    transition: all 0.3s ease !important;
-}
-
-.secondaryButton:hover:not(:disabled) {
-    background-color: var(--primary) !important;
-    color: var(--white) !important;
-}
-
-/* View Toggle Buttons */
-.viewButton {
-    background-color: var(--white) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
-    padding: 0.5rem 1rem !important;
-    font-size: 0.875rem !important;
-    font-weight: 500 !important;
-    transition: all 0.3s ease !important;
-}
-
-.viewButton:first-child {
-    border-top-left-radius: 6px !important;
-    border-bottom-left-radius: 6px !important;
-}
-
-.viewButton:last-child {
-    border-top-right-radius: 6px !important;
-    border-bottom-right-radius: 6px !important;
-}
-
-.viewButtonActive {
-    background-color: var(--primary) !important;
-    border-color: var(--primary) !important;
-    color: var(--white) !important;
-}
-
-/* ===== PROGRESS INDICATORS ===== */
-
-.progressBar {
-    background-color: var(--background);
-    border-radius: 8px;
-    height: 8px;
-    overflow: hidden;
-    margin: 1rem 0;
-}
-
-.progressFill {
-    height: 100%;
-    border-radius: 8px;
-    transition: width 0.3s ease;
-}
-
-.progressBarPrimary {
-    background-color: var(--primary);
-}
-
-.progressBarSuccess {
-    background-color: var(--success);
-}
-
-/* ===== TYPOGRAPHY ===== */
-
-.text {
-    color: var(--text);
-}
-
-.textSmall {
-    font-size: 0.875rem;
-    color: #666;
-}
-
-/* ===== ANIMATIONS ===== */
-
-.loadingSpinner {
-    display: inline-block;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: var(--white);
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* ===== RESPONSIVE DESIGN ===== */
-
-@media (max-width: 768px) {
-    .mainContainer {
-        margin: 1rem auto;
-    }
-
-    .mainTitle {
-        font-size: 1.5rem;
-    }
-
-    .actionButton,
-    .secondaryButton {
-        min-width: 140px !important;
-        padding: 0.5rem 1rem !important;
-    }
-
-    .uploadArea {
-        padding: 1rem;
-    }
-
-    .viewButton {
-        padding: 0.4rem 0.8rem !important;
-        font-size: 0.8rem !important;
-    }
-}
-
-/* ===== ALERTS ===== */
-
 .alertDanger {
-    background-color: #fff2f2;
-    border: 1px solid #ffd6d6;
-    color: var(--primary);
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
     padding: 1rem;
-    border-radius: 6px;
-    margin: 1rem 0;
-    font-size: 0.875rem;
+    border-radius: var(--border-radius);
+    text-align: center;
+    margin-bottom: 2rem;
 }
 
-/* Report Display Styles */
-.bottomSection {
+/* 5. REPORT & CONTENT DISPLAY */
+.results-container {
+    background-color: var(--wf-white);
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-md);
     margin-top: 2rem;
-    padding: 1rem;
 }
 
-.reportContainer {
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    width: 100%;
-    min-width: 1000px;
-    overflow-x: auto;
+.report-card {
+    background-color: var(--wf-white);
+    border: 1px solid var(--wf-border-color);
+    border-radius: var(--border-radius);
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    /* Ensures child elements adhere to border radius */
 }
 
-.reportHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 2rem;
-    border-bottom: 1px solid #e5e7eb;
+.report-card-content {
+    padding: 1.5rem;
 }
 
-.reportHeader h2 {
-    font-size: 1.75rem;
-    font-weight: 600;
-    color: #111827;
-    margin: 0;
-}
-
-.reportActions {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-}
-
-.viewModeButton,
-.downloadButton,
-.startOverButton {
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    font-weight: 500;
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.viewModeButton {
-    background-color: white;
-    border: 1px solid #d1d5db;
-    color: #374151;
-}
-
-.viewModeButton:hover {
-    background-color: #f3f4f6;
-}
-
-.downloadButton {
-    background-color: #2563eb;
-    border: 1px solid #2563eb;
-    color: white;
-}
-
-.downloadButton:hover {
-    background-color: #1d4ed8;
-}
-
-.startOverButton {
-    background-color: white;
-    border: 1px solid #dc2626;
-    color: #dc2626;
-}
-
-.startOverButton:hover {
-    background-color: #dc2626;
-    color: white;
-}
-
-.tableContainer {
-    padding: 2rem;
-    overflow-x: auto;
-    width: 100%;
-}
-
-.reportTable {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 1000px;
-}
-
-.reportTable th {
-    background-color: #f9fafb;
-    padding: 1.25rem 1.5rem;
-    text-align: left;
-    font-weight: 600;
-    color: #374151;
-    border-bottom: 1px solid #e5e7eb;
-    font-size: 1.1rem;
-}
-
-.reportTable td {
-    padding: 1.25rem 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
-    color: #111827;
-    font-size: 1rem;
-}
-
-.quality {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    border-radius: 9999px;
-    font-size: 0.75rem;
-    font-weight: 500;
-}
-
-.qualityAdequate {
-    background-color: #dcfce7;
-    color: #15803d;
-}
-
-.qualityInadequate {
-    background-color: #fee2e2;
-    color: #b91c1c;
-}
-
-.qualityNeedsReview {
-    background-color: #fef3c7;
-    color: #b45309;
-}
-
-.reportContent {
-    padding: 2rem;
+.report-field {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
-    gap: 2rem;
-    width: 100%;
-}
-
-.reportItem {
-    background-color: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 2rem;
-    height: fit-content;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.prompt {
-    margin: 0 0 1.5rem 0;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #111827;
-    flex-grow: 0;
-    line-height: 1.4;
-}
-
-.responseTable {
-    flex-grow: 1;
-}
-
-.responseTable table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.responseTable td {
+    grid-template-columns: 150px 1fr;
+    gap: 1rem;
     padding: 0.75rem 0;
-    border-bottom: 1px solid #e5e7eb;
-    word-break: break-word;
+    border-bottom: 1px solid var(--wf-light-gray);
 }
 
-.responseTable tr:last-child td {
+.report-field:last-child {
     border-bottom: none;
 }
 
-.label {
-    font-weight: 500;
-    color: #6b7280;
-    width: 100px;
-    padding-right: 1rem;
-    vertical-align: top;
+.field-label {
+    font-weight: 600;
+    color: var(--wf-text);
 }
 
-.emptyState {
-    padding: 3rem;
-    text-align: center;
-    color: #6b7280;
+.field-value {
+    color: #555;
+}
+
+/* Table styles */
+.table-container {
+    overflow-x: auto;
+    /* For responsive behavior */
+}
+
+.assessment-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.assessment-table th,
+.assessment-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--wf-border-color);
+}
+
+.assessment-table th {
+    background-color: var(--wf-light-gray);
+    font-weight: 600;
+}
+
+.assessment-table tr:hover {
+    background-color: #fcf8e3;
+    /* A light gold for hover */
+}
+
+/* 6. QUALITY & STATUS STYLES */
+
+.quality-adequate,
+.answer-yes {
+    color: var(--success-green);
+    font-weight: bold;
+}
+
+.quality-inadequate,
+.answer-no {
+    color: var(--wf-red);
+    font-weight: bold;
+}
+
+.quality-needs_review,
+.answer-partial {
+    color: var(--warning-orange);
+    font-weight: bold;
+}
+
+/* 7. ZIP CONTENTS DISPLAY */
+.zip-contents-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.zip-contents-modal {
+    background-color: var(--wf-white);
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-md);
+    width: 80%;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.zip-contents-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--wf-border-color);
+    padding-bottom: 1rem;
+}
+
+.zip-contents-header h2 {
+    color: var(--wf-red);
+    margin: 0;
+}
+
+.folder-list {
+    list-style: none;
+    padding: 0;
+}
+
+.folder-item {
+    margin-bottom: 1rem;
+}
+
+.folder-header {
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0.5rem;
+    background-color: var(--wf-light-gray);
+    border-radius: var(--border-radius);
+}
+
+.file-list {
+    list-style: none;
+    padding-left: 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.file-item {
+    padding: 0.25rem 0;
+}
+
+/* 8. KENDO BUTTON OVERRIDES */
+/* Apply general styles to all Kendo buttons */
+:global(.k-button) {
+    border-radius: var(--border-radius) !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    padding: 0.75rem 1.5rem !important;
+    border: none !important;
+    transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out !important;
+}
+
+:global(.k-button:hover) {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+/* Primary Button (e.g., Generate Report) */
+:global(.k-button-primary) {
+    background-color: var(--wf-red) !important;
+    color: var(--wf-white) !important;
+}
+
+:global(.k-button-primary:hover) {
+    background-color: #a71622 !important;
+    /* Darker red on hover */
+}
+
+:global(.k-button-primary:disabled) {
+    background-color: #d41c2c80 !important;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Info Button (e.g., View Contents) */
+:global(.k-button-info) {
+    background-color: transparent !important;
+    color: var(--wf-gold) !important;
+    border: 2px solid var(--wf-gold) !important;
+}
+
+:global(.k-button-info:hover) {
+    background-color: var(--wf-gold) !important;
+    color: var(--wf-text) !important;
+}
+
+/* Success Button (e.g., Download) */
+:global(.k-button-success) {
+    background-color: var(--success-green) !important;
+    color: var(--wf-white) !important;
+}
+
+:global(.k-button-success:hover) {
+    background-color: #1e7e34 !important;
+}
+
+/* Error Button (e.g., Start Over) */
+:global(.k-button-error) {
+    background-color: transparent !important;
+    color: var(--wf-red) !important;
+    border: 2px solid var(--wf-red) !important;
+}
+
+:global(.k-button-error:hover) {
+    background-color: var(--wf-red) !important;
+    color: var(--wf-white) !important;
+}
+
+/* Secondary/Toggle Button */
+:global(.k-button-secondary) {
+    background-color: var(--wf-gold) !important;
+    color: var(--wf-text) !important;
+}
+
+:global(.k-button-secondary:hover) {
+    background-color: #e4b335 !important;
 }
