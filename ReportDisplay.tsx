@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../assessment.module.css';
 import { ButtonGroup, Button } from '@progress/kendo-react-buttons';
+// Using console.log for now as logger is not available
+const logger = {
+    info: console.log,
+    error: console.error
+};
 
 interface TableRow {
     Question: string;
@@ -29,33 +34,58 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [], onSt
     const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
 
     useEffect(() => {
-        const rows = results.flatMap((r) => {
-            let txt = r.answer?.trim() || '';
+        const rows = results.flatMap((r, i) => {
+            console.log(`Raw answer for element ${i} (CID: ${r.controlId}):`, r.answer);
+            logger.info(`Raw answer string [${r.designElementId}]: ${r.answer}`);
 
-            if (txt.startsWith('"') || txt.startsWith('```json')) {
-                txt = txt
+            let cleanedAnswer = r.answer?.trim() || '';
+            console.log(`Initial trimmed answer [${r.designElementId}]:`, cleanedAnswer);
+
+            if (cleanedAnswer.startsWith('"') || cleanedAnswer.startsWith('```json')) {
+                cleanedAnswer = cleanedAnswer
                     .replace(/^"(?:json)?\s*/i, '')
                     .replace(/\s*"```$/, '')
                     .replace(/^```(?:json)?\s*/i, '')
                     .replace(/\s*```$/, '');
+                console.log(`Cleaned answer [${r.designElementId}]:`, cleanedAnswer);
+                logger.info(`Cleaned answer for ${r.designElementId}:`, { original: r.answer, cleaned: cleanedAnswer });
             }
 
             try {
-                const obj = JSON.parse(txt);
-                return Array.isArray(obj) ? obj : [obj];
-            } catch {
-                // fallback object when JSON parsing fails
+                const parsed = JSON.parse(cleanedAnswer);
+                logger.info(`Parsed answer for ${r.designElementId}:`, parsed);
+                console.log(`Parsed JSON Object for ${r.designElementId}:`, parsed);
+
+                // Handle array or single object
+                const resultObjects = Array.isArray(parsed) ? parsed : [parsed];
+
+                // Map each object to ensure all required fields are present
+                return resultObjects.map(obj => ({
+                    Question: r.question || obj.Question || 'No question provided',
+                    Answer: obj.Answer || r.answer || 'No answer provided',
+                    Answer_Quality: obj.Quality || obj.Answer_Quality || 'NEEDS_REVIEW',
+                    Answer_Source: obj.Source || obj.Answer_Source || 'Not specified',
+                    Summary: obj.Summary || 'No summary available',
+                    Reference: obj.Reference || `Domain_Id: ${r.controlId}`
+                }));
+            } catch (err) {
+                console.error(`❌ Failed to parse answer for ${r.designElementId}`, err);
+                logger.error(`❌ Parsing error for ${r.designElementId}`, { error: err, answer: r.answer });
+
+                // Return a fallback object with meaningful defaults
                 return [{
-                    Question: r.question,
-                    Answer: r.answer,
-                    Answer_Quality: '',
-                    Answer_Source: '',
-                    Summary: '',
-                    Reference: ''
+                    Question: r.question || 'Question not available',
+                    Answer: r.answer || 'Unable to parse response',
+                    Answer_Quality: r.status === 'error' ? 'INADEQUATE' : 'NEEDS_REVIEW',
+                    Answer_Source: r.controlId || 'Unknown source',
+                    Summary: r.error || 'Failed to parse LLM response',
+                    Reference: `Domain_Id: ${r.controlId}`
                 }];
             }
         });
 
+        console.log('Final processed table data:', rows);
+        logger.info('Final table data processed', { rowCount: rows.length, rows });
         setTableData(rows);
     }, [results]);
 
