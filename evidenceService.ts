@@ -511,5 +511,143 @@ export async function submitPromptForControl(
     }
 }
 
+/**
+ * Processes multiple control IDs in parallel, validating all their design elements
+ * @param controlPrompts Array of control prompts with their associated files
+ * @returns Object mapping controlIds to their validation results
+ */
+export async function getLLMEvidenceBatchParallel(
+    controlPrompts: Array<{
+        controlId: string;
+        prompts: Array<{ id: string; prompt: string; question: string }>;
+        files: File[];
+    }>
+): Promise<Record<string, DesignElementResult[]>> {
+    console.log('🚀 Starting batch parallel processing:', {
+        totalControls: controlPrompts.length,
+        controlIds: controlPrompts.map(cp => cp.controlId),
+        totalPrompts: controlPrompts.reduce((acc, cp) => acc + cp.prompts.length, 0)
+    });
+
+    try {
+        // Process each control's prompts in parallel
+        const controlResults = await Promise.all(
+            controlPrompts.map(async ({ controlId, prompts, files }) => {
+                console.log(`📦 Processing control ${controlId}:`, {
+                    promptCount: prompts.length,
+                    fileCount: files.length,
+                    fileTypes: files.map(f => f.type)
+                });
+
+                try {
+                    // Convert files to base64 once per control to avoid redundant conversions
+                    console.log(`🔄 Converting files to base64 for control ${controlId}...`);
+                    const startTime = performance.now();
+                    const evidenceBase64 = await prepareEvidenceFiles(files);
+                    const conversionTime = performance.now() - startTime;
+                    console.log(`✅ Files converted for ${controlId} in ${conversionTime.toFixed(2)}ms:`, {
+                        fileCount: files.length,
+                        totalBase64Length: evidenceBase64.reduce((acc, b64) => acc + b64.length, 0)
+                    });
+
+                    // Process all prompts for this control in parallel
+                    console.log(`🔄 Starting parallel validation of ${prompts.length} prompts for control ${controlId}`);
+                    const promptStartTime = performance.now();
+                    const results = await Promise.all(
+                        prompts.map(async (prompt, index) => {
+                            const designElementId = `${controlId}-${index + 1}`;
+                            console.log(`📝 Preparing payload for ${designElementId}:`, {
+                                promptLength: prompt.prompt.length,
+                                questionLength: prompt.question.length
+                            });
+
+                            const payload: LLMPayload = {
+                                controlId,
+                                designElementId,
+                                prompt: prompt.prompt,
+                                question: prompt.question,
+                                evidences: evidenceBase64
+                            };
+
+                            // Reuse existing validation logic
+                            console.log(`🚀 Sending validation request for ${designElementId}`);
+                            const result = await validateDesignElement(payload);
+                            console.log(`✅ Validation complete for ${designElementId}:`, {
+                                status: result.status,
+                                answerLength: result.answer?.length || 0
+                            });
+
+                            return result;
+                        })
+                    );
+
+                    const promptProcessingTime = performance.now() - promptStartTime;
+                    console.log(`✅ Completed processing control ${controlId}:`, {
+                        totalPrompts: prompts.length,
+                        processingTimeMs: promptProcessingTime.toFixed(2),
+                        successCount: results.filter(r => r.status === 'success').length,
+                        errorCount: results.filter(r => r.status === 'error').length
+                    });
+
+                    return {
+                        controlId,
+                        results
+                    };
+                } catch (error) {
+                    console.error(`❌ Error processing control ${controlId}:`, {
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+
+                    // Return error results for this control
+                    return {
+                        controlId,
+                        results: prompts.map((prompt, index) => ({
+                            controlId,
+                            designElementId: `${controlId}-${index + 1}`,
+                            prompt: prompt.prompt,
+                            question: prompt.question,
+                            status: 'error' as const,
+                            answer: ''
+                        }))
+                    };
+                }
+            })
+        );
+
+        // Convert array of results to Record<controlId, results[]>
+        const finalResults = controlResults.reduce((acc, { controlId, results }) => {
+            acc[controlId] = results;
+            return acc;
+        }, {} as Record<string, DesignElementResult[]>);
+
+        // Log final statistics
+        const totalPrompts = Object.values(finalResults).reduce((acc, results) => acc + results.length, 0);
+        const successfulPrompts = Object.values(finalResults).reduce(
+            (acc, results) => acc + results.filter(r => r.status === 'success').length,
+            0
+        );
+        const failedPrompts = totalPrompts - successfulPrompts;
+
+        console.log('✨ Batch parallel processing complete:', {
+            totalControls: controlPrompts.length,
+            totalPrompts,
+            successfulPrompts,
+            failedPrompts,
+            successRate: `${((successfulPrompts / totalPrompts) * 100).toFixed(1)}%`
+        });
+
+        return finalResults;
+    } catch (error) {
+        console.error('❌ Fatal error in batch parallel processing:', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined,
+            controlCount: controlPrompts.length,
+            controlIds: controlPrompts.map(cp => cp.controlId)
+        });
+        throw error;
+    }
+}
+
 // Export the type from promptService
 export type { QuestionPrompt } from './promptService'; 
