@@ -397,14 +397,12 @@ const FullVendorAnalysis: React.FC = () => {
                             });
 
                             // Prepare evidence payload - reuse existing base64 from zipFileProcessor
-                            const payload = {
+                            const payload: EvidencePayload = {
                                 controlId: control.cid,
                                 designElementId: element.id,
                                 prompt: element.prompt,
                                 question: element.question,
-                                evidences: control.evidences
-                                    .filter(e => e.type.toLowerCase() === 'pdf')
-                                    .map(e => e.base64)
+                                evidences: control.evidences.map(e => e.base64)
                             };
 
                             console.log(`Sending payload for ${element.id}:`, {
