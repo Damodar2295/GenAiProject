@@ -1,26 +1,17 @@
-import React, { useRef, useState } from "react";
-import { generateMockReport, ReportItem } from "./utils/generate_report";
-import { processZipFile } from "./services/zipFileProcessor";
-import { processControlsWithEvidence, GetLLMEvidence, submitPromptForControl, type ApiResponse, type EvidencePayload } from "./services/evidenceService";
-import { getDesignElementsByCID } from "./services/promptService";
-import { Upload } from "@progress/kendo-react-upload";
-import { Button } from "@progress/kendo-react-buttons";
-import { Grid, GridColumn } from "@progress/kendo-react-grid";
-import { ExcelExport } from "@progress/kendo-react-excel-export";
-import { Dialog } from "@progress/kendo-react-dialogs";
-import { ZipContentsDisplay } from "./components/ZipContentsDisplay";
-import { ReportDisplay } from "./components/ReportDisplay";
-import { ProgressDisplay } from "./components/ProgressDisplay";
-import "@progress/kendo-theme-default/dist/all.css";
+import React, { useState } from 'react';
+import { Upload } from '@progress/kendo-react-upload';
+import { processZipFile } from './services/zipFileProcessor';
+import { getLLMEvidenceBatchParallel, type ApiResponse } from './services/evidenceService';
+import { getDesignElementsByCID } from './services/promptService';
+import { ReportDisplay } from './components/ReportDisplay';
+import { ZipContentsDisplay } from './components/ZipContentsDisplay';
+import { ProgressDisplay } from './components/ProgressDisplay';
 import styles from './assessment.module.css';
-import './App.css';
-import axios from "axios";
-import { LLMAnswerResponse } from './types/survey';
+import { Button } from '@progress/kendo-react-buttons';
 
-// Enhanced ReportItem interface to match LLM results
 interface EnhancedReportItem {
     id: string;
-    controlId: string;  // This is Domain_Id
+    controlId: string;
     designElementId: string;
     status: 'success' | 'error';
     processingError?: string;
@@ -70,37 +61,25 @@ interface ProcessedFolder {
 }
 
 interface ControlResult {
-
     controlId: string;
     isLoading: boolean;
     error?: string;
     results: ApiResponse[];
 }
 
-// Using console.log for now as logger is not available
-const logger = {
-    info: console.log,
-    error: console.error
-};
-
-// Add new type for processing mode
-type ProcessingMode = 'sequential' | 'parallel';
-
 const FullVendorAnalysis: React.FC = () => {
-    const excelExportRef = useRef<ExcelExport | null>(null);
-
+    const [currentZipFile, setCurrentZipFile] = useState<File | null>(null);
+    const [zipUploaded, setZipUploaded] = useState(false);
+    const [zipContents, setZipContents] = useState<{ folders: ProcessedFolder[] }>({ folders: [] });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [report, setReport] = useState<EnhancedReportItem[]>([]);
     const [showReport, setShowReport] = useState(false);
-    const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
-    const [zipUploaded, setZipUploaded] = useState(false);
+    const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
     const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
-    const [zipContents, setZipContents] = useState<{ folders: ProcessedFolder[] }>({ folders: [] });
-    const [showZipContents, setShowZipContents] = useState(false);
-    const [isViewingContents, setIsViewingContents] = useState(false);
-    const [currentZipFile, setCurrentZipFile] = useState<File | null>(null);
     const [controlResults, setControlResults] = useState<Record<string, ControlResult>>({});
+    const [isViewingContents, setIsViewingContents] = useState(false);
+    const [showZipContents, setShowZipContents] = useState(false);
 
     const handleUploadSuccess = (event: any) => {
         const files = event.affectedFiles || [];
@@ -216,291 +195,6 @@ const FullVendorAnalysis: React.FC = () => {
         }
     };
 
-    const processLLMResponse = (llmResult: any, control: any, element: any): EnhancedReportItem => {
-        console.log(`Raw answer for element ${element.id} (CID: ${control.cid}):`, llmResult.answer);
-        logger.info(`Raw answer string [${element.id}]: ${llmResult.answer}`);
-
-        let cleanedAnswer = llmResult.answer?.trim() || '';
-        console.log(`Initial trimmed answer [${element.id}]:`, cleanedAnswer);
-
-        if (cleanedAnswer.startsWith('"') || cleanedAnswer.startsWith('```json')) {
-            cleanedAnswer = cleanedAnswer
-                .replace(/^"(?:json)?\s*/i, '')
-                .replace(/\s*"```$/, '')
-                .replace(/^```(?:json)?\s*/i, '')
-                .replace(/\s*```$/, '');
-            console.log(`Cleaned answer [${element.id}]:`, cleanedAnswer);
-            logger.info(`Cleaned answer for ${element.id}:`, { original: llmResult.answer, cleaned: cleanedAnswer });
-        }
-
-        try {
-            const parsed = JSON.parse(cleanedAnswer);
-            logger.info(`Parsed answer for ${element.id}:`, parsed);
-            console.log(`Parsed JSON Object for ${element.id}:`, parsed);
-
-            // Extract the design element number from the ID (e.g., "BC001-sub-1" -> "1")
-            const designElementNumber = element.id.split('-').pop() || '';
-
-            // Create a unique identifier for this specific design element
-            const uniqueId = `${control.cid}-element-${designElementNumber}`;
-
-            // Map the answer to YES/NO/PARTIAL based on the parsed response
-            const mappedAnswer = parsed.Answer?.toUpperCase() === 'YES' ? 'YES' :
-                parsed.Answer?.toUpperCase() === 'PARTIAL' ? 'PARTIAL' : 'NO';
-
-            // Map the quality to one of the allowed values
-            const mappedQuality = parsed.Answer_Quality?.toUpperCase() === 'ADEQUATE' ? 'ADEQUATE' :
-                parsed.Answer_Quality?.toUpperCase() === 'INADEQUATE' ? 'INADEQUATE' : 'NEEDS_REVIEW';
-
-            // Extract design element from the prompt or answer
-            let designElement = 'No design element found';
-
-            // First try to get from prompt if available
-            if (element.prompt) {
-                const promptParts = element.prompt.split('design element:');
-                if (promptParts.length > 1) {
-                    designElement = promptParts[1].trim();
-                }
-            }
-
-            // If not found in prompt, try to extract from the answer
-            if (designElement === 'No design element found' && parsed.Question) {
-                // Extract the design element from the question if possible
-                const questionParts = parsed.Question.split('design element:');
-                if (questionParts.length > 1) {
-                    designElement = questionParts[1].trim();
-                } else {
-                    // If no design element marker, use the full question
-                    designElement = parsed.Question;
-                }
-            }
-
-            // If still not found, use the question from the element
-            if (designElement === 'No design element found' && element.question) {
-                designElement = element.question;
-            }
-
-            console.log('Extracted design element:', {
-                fromPrompt: element.prompt,
-                fromAnswer: parsed.Question,
-                finalElement: designElement
-            });
-
-            // Create the report item with correct field mappings
-            const reportItem: EnhancedReportItem = {
-                id: uniqueId,
-                controlId: control.cid,
-                designElementId: element.id,
-                status: llmResult.status,
-                processingError: llmResult.error,
-                quality: mappedQuality,
-                answer: mappedAnswer,
-                evidence: control.evidences.map((e: any) => e.name),
-                question: designElement,
-                source: parsed.Answer_Source || control.cid,
-                summary: parsed.Summary || cleanedAnswer || 'No summary available',
-                reference: parsed.Reference || `Domain_Id: ${control.cid} - Element ${designElementNumber}`
-            };
-
-            console.log('Processed report item:', reportItem);
-            return reportItem;
-
-        } catch (err) {
-            console.error(`❌ Failed to parse answer for ${element.id}`, err);
-            logger.error(`❌ Parsing error for ${element.id}`, { error: err, answer: llmResult.answer });
-
-            // Extract the design element number for the error case too
-            const designElementNumber = element.id.split('-').pop() || '';
-            const uniqueId = `${control.cid}-element-${designElementNumber}`;
-
-            // Get question from element or use default
-            const designElement = element.question || 'No question available';
-
-            return {
-                id: uniqueId,
-                controlId: control.cid,
-                designElementId: element.id,
-                status: 'error',
-                processingError: `Failed to parse LLM response: ${err instanceof Error ? err.message : 'Unknown error'}`,
-                quality: 'INADEQUATE',
-                answer: 'NO',
-                evidence: control.evidences.map((e: any) => e.name),
-                question: designElement,
-                source: control.cid,
-                summary: cleanedAnswer || 'Failed to parse LLM response',
-                reference: `Domain_Id: ${control.cid} - Element ${designElementNumber}`
-            };
-        }
-    };
-
-    /**
-     * Enhanced processDesignElements function with parallel LLM processing
-     * Processes controls and their design elements in parallel for faster execution
-     */
-    const processDesignElements = async (zipFile: File): Promise<EnhancedReportItem[]> => {
-        const processedReports: EnhancedReportItem[] = [];
-
-        try {
-            console.log('Starting evidence processing...');
-            // Phase 1: Extract and process ZIP file
-            setProcessingProgress({
-                current: 0,
-                total: 1,
-                currentControl: 'Extracting ZIP file contents...',
-                phase: 'zip_processing'
-            });
-
-            const zipResult = await processZipFile(zipFile) as ProcessedZipResult;
-            console.log('ZIP extraction complete:', {
-                controlsCount: zipResult.controls?.length || 0,
-                totalFiles: zipResult.totalFiles,
-                totalControls: zipResult.totalControls
-            });
-
-            // Process structured folders
-            if (!zipResult.controls || zipResult.controls.length === 0) {
-                throw new Error('No valid controls found in ZIP file');
-            }
-
-            console.log('Processing controls/folders...');
-            const validControls = zipResult.controls.filter(control =>
-                control.evidences && control.evidences.some(evidence =>
-                    evidence.type.toLowerCase() === 'pdf'
-                )
-            );
-
-            console.log(`Found ${validControls.length} valid controls with evidence files`);
-
-            if (validControls.length === 0) {
-                throw new Error('No valid controls with PDF evidence files found');
-            }
-
-            // Phase 2: Process controls through LLM in parallel
-            setProcessingProgress({
-                current: 0,
-                total: validControls.length,
-                currentControl: 'Starting LLM processing...',
-                phase: 'llm_processing'
-            });
-
-            // Process all controls in parallel with a concurrency limit
-            const concurrencyLimit = 3; // Process 3 controls at a time
-            const chunks = [];
-            for (let i = 0; i < validControls.length; i += concurrencyLimit) {
-                chunks.push(validControls.slice(i, i + concurrencyLimit));
-            }
-
-            let processedCount = 0;
-            for (const chunk of chunks) {
-                // Process each chunk of controls in parallel
-                const chunkPromises = chunk.map(async (control) => {
-                    try {
-                        // Get design elements for this CID
-                        const [isValid, designElements] = await getDesignElementsByCID(control.cid);
-
-                        if (!isValid || designElements.length === 0) {
-                            const errorMsg = `No design elements found for Control ID: ${control.cid}`;
-                            processedReports.push({
-                                id: control.cid,
-                                controlId: control.cid,
-                                designElementId: `${control.cid}-error`,
-                                status: 'error',
-                                processingError: errorMsg,
-                                quality: 'INADEQUATE',
-                                answer: 'NO',
-                                evidence: [],
-                                question: 'No design elements found',
-                                source: 'System',
-                                summary: errorMsg,
-                                reference: `Domain_Id: ${control.cid}`
-                            });
-                            return;
-                        }
-
-                        // Process all design elements for this control in parallel
-                        const elementPromises = designElements.map(async (element, elementIndex) => {
-                            try {
-                                // Prepare evidence payload
-                                const payload: EvidencePayload = {
-                                    controlId: control.cid,
-                                    designElementId: element.id,
-                                    prompt: element.prompt,
-                                    question: element.question,
-                                    evidences: control.evidences.map(e => e.base64)
-                                };
-
-                                console.log(`Processing ${control.cid} - ${element.id}`);
-                                const llmResult = await GetLLMEvidence(payload);
-                                return processLLMResponse(llmResult, control, element);
-                            } catch (error) {
-                                console.error(`Error processing element ${element.id}:`, error);
-                                return {
-                                    id: `${control.cid}-${elementIndex}`,
-                                    controlId: control.cid,
-                                    designElementId: element.id,
-                                    status: 'error',
-                                    processingError: error instanceof Error ? error.message : 'Unknown error',
-                                    quality: 'INADEQUATE',
-                                    answer: 'NO',
-                                    evidence: control.evidences.map(e => e.name),
-                                    question: element.question,
-                                    source: control.cid,
-                                    summary: 'Failed to process design element',
-                                    reference: `Domain_Id: ${control.cid}`
-                                };
-                            }
-                        });
-
-                        const elementResults = await Promise.all(elementPromises);
-                        processedReports.push(...elementResults);
-                    } catch (error) {
-                        console.error(`Error processing control ${control.cid}:`, error);
-                        processedReports.push({
-                            id: control.cid,
-                            controlId: control.cid,
-                            designElementId: `${control.cid}-error`,
-                            status: 'error',
-                            processingError: error instanceof Error ? error.message : 'Unknown error',
-                            quality: 'INADEQUATE',
-                            answer: 'NO',
-                            evidence: control.evidences.map(e => e.name),
-                            question: 'Failed to get design elements',
-                            source: control.cid,
-                            summary: `Failed to process control: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                            reference: `Domain_Id: ${control.cid}`
-                        });
-                    }
-                });
-
-                // Wait for the current chunk to complete
-                await Promise.all(chunkPromises);
-                processedCount += chunk.length;
-
-                // Update progress
-                setProcessingProgress({
-                    current: processedCount,
-                    total: validControls.length,
-                    currentControl: `Processed ${processedCount}/${validControls.length} controls`,
-                    phase: 'llm_processing'
-                });
-            }
-
-            // Mark processing as complete
-            setProcessingProgress({
-                current: validControls.length,
-                total: validControls.length,
-                currentControl: 'Processing complete!',
-                phase: 'complete'
-            });
-
-            return processedReports;
-
-        } catch (error) {
-            console.error('Error in processDesignElements:', error);
-            throw error;
-        }
-    };
-
     const handleGenerateReport = async () => {
         if (!currentZipFile) {
             setError('Please upload a ZIP file first');
@@ -512,8 +206,98 @@ const FullVendorAnalysis: React.FC = () => {
             setError(null);
             setReport([]);
 
-            const results = await processDesignElements(currentZipFile);
-            setReport(results);
+            // Process the zip file to get controls and evidence
+            const zipResult = await processZipFile(currentZipFile);
+            console.log('✅ Zip processing complete:', zipResult);
+
+            // Prepare the control prompt list for parallel processing
+            const controlPromptList = await Promise.all(
+                zipResult.controls.map(async (control) => {
+                    const [, designElements] = await getDesignElementsByCID(control.cid);
+                    return {
+                        controlId: control.cid,
+                        prompts: designElements.map(element => ({
+                            id: element.id,
+                            prompt: element.prompt,
+                            question: element.question
+                        })),
+                        files: control.evidences.map(e => {
+                            // Convert base64 to Uint8Array
+                            const binaryString = atob(e.base64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            // Create a blob from the bytes
+                            const blob = new Blob([bytes], { type: e.type });
+                            // Create a File from the blob
+                            return new File([blob], e.name, { type: e.type });
+                        })
+                    };
+                })
+            );
+
+            console.log('✅ Control prompt list prepared:', controlPromptList);
+
+            // Process all controls in parallel
+            const batchResults = await getLLMEvidenceBatchParallel(controlPromptList);
+            console.log('✅ Parallel processing complete:', batchResults);
+
+            // Transform batch results into report format
+            const reportResults: EnhancedReportItem[] = Object.entries(batchResults).flatMap(([controlId, results]) =>
+                results.map(result => {
+                    try {
+                        // Clean up the response string before parsing
+                        let cleanAnswer = result.answer || '';
+                        cleanAnswer = cleanAnswer.trim();
+                        cleanAnswer = cleanAnswer.replace(/\\n/g, ' ').replace(/\\t/g, ' ');
+                        cleanAnswer = cleanAnswer.replace(/^```json\s*/, '').replace(/```\s*$/, '');
+
+                        // If the answer starts with a quote, assume it's a JSON string
+                        if (cleanAnswer.startsWith('"') && cleanAnswer.endsWith('"')) {
+                            cleanAnswer = cleanAnswer.slice(1, -1);
+                        }
+
+                        const answerObj = JSON.parse(cleanAnswer);
+                        const mappedQuality = answerObj.Answer_Quality?.toUpperCase() || 'NEEDS_REVIEW';
+                        const mappedAnswer = answerObj.Answer?.toUpperCase() || 'NO';
+
+                        return {
+                            id: `${controlId}-${result.designElementId}`,
+                            controlId: result.controlId,
+                            designElementId: result.designElementId,
+                            status: result.status,
+                            quality: mappedQuality as 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW',
+                            answer: mappedAnswer as 'YES' | 'NO' | 'PARTIAL',
+                            question: result.question,
+                            source: answerObj.Answer_Source || '',
+                            summary: answerObj.Summary || cleanAnswer || '',
+                            reference: answerObj.Reference || '',
+                            evidence: []
+                        };
+                    } catch (error) {
+                        console.error(`Error parsing result for ${result.designElementId}:`, error);
+                        console.error('Raw answer:', result.answer);
+
+                        return {
+                            id: `${controlId}-${result.designElementId}`,
+                            controlId: result.controlId,
+                            designElementId: result.designElementId,
+                            status: 'error',
+                            quality: 'NEEDS_REVIEW',
+                            answer: 'NO',
+                            question: result.question,
+                            source: '',
+                            summary: result.answer || 'Failed to parse LLM response',
+                            reference: '',
+                            evidence: []
+                        };
+                    }
+                })
+            );
+
+            console.log('✅ Report results prepared:', reportResults);
+            setReport(reportResults);
             setShowReport(true);
         } catch (error) {
             console.error('Error generating report:', error);
@@ -523,37 +307,28 @@ const FullVendorAnalysis: React.FC = () => {
         }
     };
 
-    const downloadCSV = () => {
-        if (!report.length) return;
+    const downloadExcel = () => {
+        if (!report || report.length === 0) return;
 
-        const headers = ['Control ID', 'Design Element', 'Question', 'Answer', 'Quality', 'Source', 'Summary', 'Reference'];
-        const csvRows = [headers];
-
-        report.forEach(item => {
-            csvRows.push([
-                item.controlId,
-                item.designElementId,
+        const headers = "Question,Answer,Quality,Source,Summary,Reference\n";
+        const rows = report.map(item => {
+            const row = [
                 item.question,
                 item.answer,
                 item.quality,
-                item.source,
-                item.summary,
-                item.reference
-            ]);
-        });
+                item.source || 'N/A',
+                item.summary || 'N/A',
+                item.reference || 'N/A'
+            ].map(cell => `"${cell.replace(/"/g, '""')}"`);
+            return row.join(',');
+        }).join('\n');
 
-        const csvContent = csvRows.map(row => row.map(cell =>
-            typeof cell === 'string' ? `"${cell.replace(/"/g, '""')}"` : cell
-        ).join(',')).join('\n');
-
+        const csvContent = headers + rows;
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'vendor_analysis_results.csv');
-        document.body.appendChild(link);
+        link.href = URL.createObjectURL(blob);
+        link.download = 'assessment_report.csv';
         link.click();
-        document.body.removeChild(link);
     };
 
     const startOver = () => {
@@ -579,130 +354,89 @@ const FullVendorAnalysis: React.FC = () => {
         setIsViewingContents(false);
     };
 
-    const toggleViewMode = () => {
-        setViewMode(prev => prev === 'table' ? 'cards' : 'table');
-    };
-
     return (
-        <div className={`${styles.container} ${styles.background}`}>
-            <div className={styles.navbar}>
-                <div className={styles.navbarBrand}>
-                    <h1 className={styles.mainTitle}>Full Vendor Assessment</h1>
-                </div>
+        <div className={styles.container}>
+            <h1 className={styles.title}>Vendor Assessment Analysis</h1>
+
+            <div className={styles.uploadSection}>
+                <Upload
+                    restrictions={{
+                        allowedExtensions: ['.zip'],
+                        maxFileSize: 100000000 // 100MB
+                    }}
+                    onAdd={handleUploadSuccess}
+                    saveUrl={''}
+                    autoUpload={false}
+                    multiple={false}
+                />
             </div>
 
-            <div className={`${styles.mainContainer} container`}>
-                <div className={`${styles.contentCard} card shadow-sm`}>
-                    <div className="card-body p-4">
-                        <div className={`${styles.uploadCard} mt-4`}>
-                            <Upload
-                                restrictions={{
-                                    allowedExtensions: ['.zip'],
-                                    maxFileSize: 100000000
-                                }}
-                                onAdd={handleUploadSuccess}
-                                saveUrl={''}
-                                autoUpload={false}
-                                multiple={false}
-                                className={styles.uploadArea}
-                            />
-                        </div>
+            {error && (
+                <div className={styles.alertDanger} role="alert">
+                    {error}
+                </div>
+            )}
 
-                        {error && (
-                            <div className={styles.alertDanger} role="alert">
-                                {error}
-                            </div>
-                        )}
-
-                        <div className="d-flex justify-content-center gap-4 mt-4">
+            {/* Action Buttons */}
+            <div className={styles.actionButtons}>
+                {!showReport ? (
+                    <>
+                        <Button
+                            disabled={!zipUploaded || loading}
+                            onClick={handleGenerateReport}
+                            themeColor={'primary'}
+                        >
+                            {loading ? 'Processing...' : 'Generate Report'}
+                        </Button>
+                        {zipUploaded && (
                             <Button
-                                disabled={!zipUploaded || isViewingContents}
+                                disabled={loading || isViewingContents}
                                 onClick={handleViewZipContents}
-                                className={styles.actionButton}
+                                themeColor={'info'}
+                                fillMode="outline"
                             >
-                                {isViewingContents ? (
-                                    <>
-                                        <span className={styles.loadingSpinner}></span>
-                                        <span className="ms-2">Viewing ZIP contents...</span>
-                                    </>
-                                ) : (
-                                    "View ZIP Contents"
-                                )}
+                                {isViewingContents ? 'Loading Contents...' : 'View ZIP Contents'}
                             </Button>
-
-                            <Button
-                                onClick={handleGenerateReport}
-                                disabled={!zipUploaded || loading || !showZipContents}
-                                className={styles.actionButton}
-                            >
-                                {loading ? (
-                                    <>
-                                        <span className={styles.loadingSpinner}></span>
-                                        <span className="ms-2">Processing analysis results, please wait...</span>
-                                    </>
-                                ) : (
-                                    "Process Evidence Files"
-                                )}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* ZIP Contents Display */}
-                {showZipContents && zipContents.folders.length > 0 && !loading && !showReport && (
-                    <div className={`${styles.contentCard} mt-4 shadow-sm`}>
-                        <div className="card-body p-4">
-                            <ZipContentsDisplay folders={zipContents.folders} />
-                        </div>
-                    </div>
-                )}
-
-                {/* Report Display */}
-                {showReport && (
-                    <div className={`${styles.contentCard} mt-4 shadow-sm`}>
-                        <div className="card-body p-4">
-                            <ReportDisplay
-                                results={report}
-                                onStartOver={startOver}
-                                onDownloadExcel={downloadCSV}
-                                viewMode={viewMode}
-                                onToggleViewMode={toggleViewMode}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                {/* Processing Progress */}
-                {processingProgress && (
-                    <div className={`${styles.contentCard} mt-4 shadow-sm`}>
-                        <div className="card-body p-4">
-                            <div className="mb-3">
-                                <div className="d-flex justify-content-between align-items-center mb-2">
-                                    <span className={`${styles.text} fw-bold`}>
-                                        {processingProgress.phase === 'zip_processing' && '⏳ Extracting ZIP contents...'}
-                                        {processingProgress.phase === 'llm_processing' && '⏳ Processing analysis results, please wait...'}
-                                        {processingProgress.phase === 'complete' && '✅ Processing Complete'}
-                                    </span>
-                                    <span className={styles.textSmall}>
-                                        {processingProgress.current}/{processingProgress.total}
-                                    </span>
-                                </div>
-                                <div className={styles.progressBar}>
-                                    <div
-                                        className={`${styles.progressFill} ${processingProgress.phase === 'complete'
-                                            ? styles.progressBarSuccess
-                                            : styles.progressBarPrimary
-                                            }`}
-                                        style={{
-                                            width: `${(processingProgress.current / processingProgress.total) * 100}%`
-                                        }}
-                                    ></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <Button
+                            onClick={() => setViewMode(viewMode === 'table' ? 'card' : 'table')}
+                            themeColor={'secondary'}
+                        >
+                            {viewMode === 'table' ? 'Card View' : 'Table View'}
+                        </Button>
+                        <Button onClick={downloadExcel} themeColor={'success'}>
+                            Download CSV
+                        </Button>
+                        <Button onClick={startOver} themeColor={'error'} fillMode="outline">
+                            Start Over
+                        </Button>
+                    </>
                 )}
             </div>
+
+            {/* Progress Display */}
+            {loading && processingProgress && (
+                <ProgressDisplay progress={processingProgress} />
+            )}
+
+            {/* ZIP Contents Display */}
+            {showZipContents && (
+                <ZipContentsDisplay
+                    folders={zipContents.folders}
+                    onClose={() => setShowZipContents(false)}
+                />
+            )}
+
+            {/* Report Display */}
+            {showReport && (
+                <ReportDisplay
+                    results={report}
+                    viewMode={viewMode}
+                />
+            )}
         </div>
     );
 };
