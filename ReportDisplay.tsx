@@ -18,16 +18,18 @@ interface TableRow {
 
 interface ReportDisplayProps {
     results?: Array<{
+        id: string;
         controlId: string;
         designElementId: string;
-        question: string;
-        answer: string;
-        quality: string;
-        source?: string;
-        summary?: string;
-        reference?: string;
         status: 'success' | 'error';
-        error?: string;
+        processingError?: string;
+        evidence?: string[];
+        quality: 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW';
+        answer: 'YES' | 'NO' | 'PARTIAL';
+        question: string;
+        source: string;
+        summary: string;
+        reference: string;
     }>;
     onStartOver: () => void;
 }
@@ -39,14 +41,18 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [], onSt
 
     useEffect(() => {
         // Map the results directly to table data format
-        const rows = results.map(r => ({
-            Question: r.question || 'No question provided',
-            Answer: r.answer || 'No answer provided',
-            Answer_Quality: r.quality || 'NEEDS_REVIEW',
-            Answer_Source: r.source || r.controlId || 'Not specified',
-            Summary: r.summary || r.answer || 'No summary available',
-            Reference: r.reference || `Domain_Id: ${r.controlId}`
-        }));
+        const rows = results.map(r => {
+            const row = {
+                Question: r.question || 'No question provided',
+                Answer: r.answer || 'No answer provided',
+                Answer_Quality: r.quality || 'NEEDS_REVIEW',
+                Answer_Source: r.source || r.controlId || 'Not specified',
+                Summary: r.summary || 'No summary available',
+                Reference: r.reference || `Domain_Id: ${r.controlId}`
+            };
+            console.log('Processing row:', row);
+            return row;
+        });
 
         console.log('Final processed table data:', rows);
         setTableData(rows);
