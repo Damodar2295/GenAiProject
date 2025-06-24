@@ -334,8 +334,8 @@ const FullVendorAnalysis: React.FC = () => {
     };
 
     /**
-     * Enhanced processDesignElements function with sequential LLM processing
-     * Processes each control and its design elements one by one
+     * Enhanced processDesignElements function with parallel LLM processing
+     * Processes controls and their design elements in parallel for faster execution
      */
     const processDesignElements = async (zipFile: File): Promise<EnhancedReportItem[]> => {
         const processedReports: EnhancedReportItem[] = [];
@@ -375,7 +375,7 @@ const FullVendorAnalysis: React.FC = () => {
                 throw new Error('No valid controls with PDF evidence files found');
             }
 
-            // Phase 2: Process each control through LLM
+            // Phase 2: Process controls through LLM in parallel
             setProcessingProgress({
                 current: 0,
                 total: validControls.length,
@@ -383,124 +383,112 @@ const FullVendorAnalysis: React.FC = () => {
                 phase: 'llm_processing'
             });
 
-            let currentIndex = 0;
-            const totalControls = validControls.length;
+            // Process all controls in parallel with a concurrency limit
+            const concurrencyLimit = 3; // Process 3 controls at a time
+            const chunks = [];
+            for (let i = 0; i < validControls.length; i += concurrencyLimit) {
+                chunks.push(validControls.slice(i, i + concurrencyLimit));
+            }
 
-            for (const control of validControls) {
-                currentIndex++;
-                console.log(`Processing control ${currentIndex}/${totalControls}: ${control.cid}`);
+            let processedCount = 0;
+            for (const chunk of chunks) {
+                // Process each chunk of controls in parallel
+                const chunkPromises = chunk.map(async (control) => {
+                    try {
+                        // Get design elements for this CID
+                        const [isValid, designElements] = await getDesignElementsByCID(control.cid);
 
-                try {
-                    // Get design elements for this Domain_Id
-                    const [isValid, designElements] = await getDesignElementsByCID(control.cid);
-                    console.log(`Design elements for ${control.cid}:`, {
-                        isValid,
-                        elementCount: designElements.length,
-                        elements: designElements.map(e => e.id)
-                    });
+                        if (!isValid || designElements.length === 0) {
+                            const errorMsg = `No design elements found for Control ID: ${control.cid}`;
+                            processedReports.push({
+                                id: control.cid,
+                                controlId: control.cid,
+                                designElementId: `${control.cid}-error`,
+                                status: 'error',
+                                processingError: errorMsg,
+                                quality: 'INADEQUATE',
+                                answer: 'NO',
+                                evidence: [],
+                                question: 'No design elements found',
+                                source: 'System',
+                                summary: errorMsg,
+                                reference: `Domain_Id: ${control.cid}`
+                            });
+                            return;
+                        }
 
-                    if (!isValid || designElements.length === 0) {
-                        const errorMsg = `No design elements found for Domain_Id: ${control.cid}`;
-                        console.warn(errorMsg);
+                        // Process all design elements for this control in parallel
+                        const elementPromises = designElements.map(async (element, elementIndex) => {
+                            try {
+                                // Prepare evidence payload
+                                const payload: EvidencePayload = {
+                                    controlId: control.cid,
+                                    designElementId: element.id,
+                                    prompt: element.prompt,
+                                    question: element.question,
+                                    evidences: control.evidences.map(e => e.base64)
+                                };
+
+                                console.log(`Processing ${control.cid} - ${element.id}`);
+                                const llmResult = await GetLLMEvidence(payload);
+                                return processLLMResponse(llmResult, control, element);
+                            } catch (error) {
+                                console.error(`Error processing element ${element.id}:`, error);
+                                return {
+                                    id: `${control.cid}-${elementIndex}`,
+                                    controlId: control.cid,
+                                    designElementId: element.id,
+                                    status: 'error',
+                                    processingError: error instanceof Error ? error.message : 'Unknown error',
+                                    quality: 'INADEQUATE',
+                                    answer: 'NO',
+                                    evidence: control.evidences.map(e => e.name),
+                                    question: element.question,
+                                    source: control.cid,
+                                    summary: 'Failed to process design element',
+                                    reference: `Domain_Id: ${control.cid}`
+                                };
+                            }
+                        });
+
+                        const elementResults = await Promise.all(elementPromises);
+                        processedReports.push(...elementResults);
+                    } catch (error) {
+                        console.error(`Error processing control ${control.cid}:`, error);
                         processedReports.push({
                             id: control.cid,
                             controlId: control.cid,
                             designElementId: `${control.cid}-error`,
                             status: 'error',
-                            processingError: errorMsg,
+                            processingError: error instanceof Error ? error.message : 'Unknown error',
                             quality: 'INADEQUATE',
                             answer: 'NO',
-                            evidence: [],
-                            question: 'No design elements found',
-                            source: 'System',
-                            summary: errorMsg,
+                            evidence: control.evidences.map(e => e.name),
+                            question: 'Failed to get design elements',
+                            source: control.cid,
+                            summary: `Failed to process control: ${error instanceof Error ? error.message : 'Unknown error'}`,
                             reference: `Domain_Id: ${control.cid}`
-                        } as EnhancedReportItem);
-                        continue;
+                        });
                     }
+                });
 
-                    // Process each design element
-                    for (const element of designElements) {
-                        try {
-                            setProcessingProgress({
-                                current: currentIndex,
-                                total: totalControls,
-                                currentControl: `${control.cid} - Processing ${element.id}`,
-                                phase: 'llm_processing'
-                            });
+                // Wait for the current chunk to complete
+                await Promise.all(chunkPromises);
+                processedCount += chunk.length;
 
-                            // Prepare evidence payload - reuse existing base64 from zipFileProcessor
-                            const payload: EvidencePayload = {
-                                controlId: control.cid,
-                                designElementId: element.id,
-                                prompt: element.prompt,
-                                question: element.question,
-                                evidences: control.evidences.map(e => e.base64)
-                            };
-
-                            console.log(`Sending payload for ${element.id}:`, {
-                                controlId: payload.controlId,
-                                designElementId: payload.designElementId,
-                                evidenceCount: payload.evidences.length
-                            });
-
-                            // Process through LLM
-                            const llmResult = await GetLLMEvidence(payload);
-                            console.log(`LLM result for ${element.id}:`, {
-                                status: llmResult.status,
-                                hasAnswer: !!llmResult.answer,
-                                error: llmResult.error
-                            });
-
-                            // Process the LLM response
-                            const processedReport = processLLMResponse(llmResult, control, element);
-                            processedReports.push(processedReport);
-
-                            // Add small delay to prevent overwhelming the API
-                            await new Promise(resolve => setTimeout(resolve, 500));
-
-                        } catch (error) {
-                            const errorMsg = `Failed to process ${control.cid} - ${element.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-                            console.error(errorMsg);
-                            processedReports.push({
-                                id: element.id,
-                                controlId: control.cid,
-                                designElementId: element.id,
-                                status: 'error',
-                                processingError: errorMsg,
-                                quality: 'INADEQUATE',
-                                answer: 'NO',
-                                evidence: control.evidences.map(e => e.name),
-                                question: element.question,
-                                source: control.cid,
-                                summary: errorMsg,
-                                reference: `Domain_Id: ${control.cid}`
-                            } as EnhancedReportItem);
-                        }
-                    }
-                } catch (error) {
-                    const errorMsg = `Failed to get design elements for ${control.cid}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-                    console.error(errorMsg);
-                    processedReports.push({
-                        id: control.cid,
-                        controlId: control.cid,
-                        designElementId: `${control.cid}-error`,
-                        status: 'error',
-                        processingError: errorMsg,
-                        quality: 'INADEQUATE',
-                        answer: 'NO',
-                        evidence: control.evidences.map(e => e.name),
-                        question: 'Failed to get design elements',
-                        source: control.cid,
-                        summary: errorMsg,
-                        reference: `Domain_Id: ${control.cid}`
-                    } as EnhancedReportItem);
-                }
+                // Update progress
+                setProcessingProgress({
+                    current: processedCount,
+                    total: validControls.length,
+                    currentControl: `Processed ${processedCount}/${validControls.length} controls`,
+                    phase: 'llm_processing'
+                });
             }
 
+            // Mark processing as complete
             setProcessingProgress({
-                current: totalControls,
-                total: totalControls,
+                current: validControls.length,
+                total: validControls.length,
                 currentControl: 'Processing complete!',
                 phase: 'complete'
             });
