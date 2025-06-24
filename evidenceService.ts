@@ -49,6 +49,7 @@ export interface LLMPayload {
     prompt: string;
     question: string;
     evidences: string[];
+    token: string;
 }
 
 export interface ApiResponse {
@@ -111,13 +112,15 @@ export async function preparePayloadForPrompt(
     try {
         const evidences = await prepareEvidenceFiles(files);
         const designElementId = `${controlId}-${index + 1}`; // 1-based index for readability
+        const token = await getToken();
 
         return {
             controlId,
             designElementId,
             prompt,
             question,
-            evidences
+            evidences,
+            token
         };
     } catch (error) {
         console.error('Error preparing payload:', error);
@@ -130,8 +133,6 @@ export async function preparePayloadForPrompt(
  */
 export async function validateDesignElement(payload: LLMPayload): Promise<DesignElementResult> {
     try {
-        const token = await getToken();
-
         console.log('Payload sent:', {
             controlId: payload.controlId,
             designElementId: payload.designElementId,
@@ -143,10 +144,16 @@ export async function validateDesignElement(payload: LLMPayload): Promise<Design
         const response = await fetch('/api/validateDesignElements', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${payload.token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+                controlId: payload.controlId,
+                designElementId: payload.designElementId,
+                prompt: payload.prompt,
+                question: payload.question,
+                evidences: payload.evidences
+            })
         });
 
         if (!response.ok) {
@@ -553,6 +560,11 @@ export async function getLLMEvidenceBatchParallel(
                     // Process all prompts for this control in parallel
                     console.log(`🔄 Starting parallel validation of ${prompts.length} prompts for control ${controlId}`);
                     const promptStartTime = performance.now();
+
+                    // Get token once for all prompts in this control
+                    const token = await getToken();
+                    console.log('✅ Token retrieved for batch processing');
+
                     const results = await Promise.all(
                         prompts.map(async (prompt, index) => {
                             const designElementId = `${controlId}-${index + 1}`;
@@ -566,7 +578,8 @@ export async function getLLMEvidenceBatchParallel(
                                 designElementId,
                                 prompt: prompt.prompt,
                                 question: prompt.question,
-                                evidences: evidenceBase64
+                                evidences: evidenceBase64,
+                                token  // Pass the token with the payload
                             };
 
                             // Reuse existing validation logic
