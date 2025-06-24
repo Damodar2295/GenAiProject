@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { generateMockReport, ReportItem, wellsFargoTheme } from "./utils/generate_report";
 import { processZipFile } from "./services/zipFileProcessor";
-import { processControlsWithEvidence, GetLLMEvidence, submitPromptForControl, getLLMEvidenceBatchParallel, type ApiResponse } from "./services/evidenceService";
+import { processControlsWithEvidence, GetLLMEvidence, submitPromptForControl, getLLMEvidenceBatchParallel, type ApiResponse, type EvidencePayload } from "./services/evidenceService";
 import { getDesignElementsByCID } from "./services/promptService";
 import { Upload } from "@progress/kendo-react-upload";
 import { Button } from "@progress/kendo-react-buttons";
@@ -510,9 +510,17 @@ const FullVendorAnalysis: React.FC = () => {
                             prompt: element.prompt,
                             question: element.question
                         })),
-                        files: control.evidences.map(e =>
-                            new File([atob(e.base64)], e.name, { type: e.type })
-                        )
+                        files: control.evidences.map(e => {
+                            // Convert base64 to Uint8Array
+                            const binaryString = atob(e.base64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            // Create Blob and then File
+                            const blob = new Blob([bytes], { type: e.type });
+                            return new File([blob], e.name, { type: e.type });
+                        })
                     };
                 })
             );
@@ -535,22 +543,56 @@ const FullVendorAnalysis: React.FC = () => {
                         const uniqueId = `${controlId}-element-${designElementNumber}`;
 
                         try {
-                            const answerObj = JSON.parse(result.answer || '{}');
+                            // Clean up the response string before parsing
+                            let cleanAnswer = result.answer || '';
+
+                            // Remove any leading/trailing whitespace
+                            cleanAnswer = cleanAnswer.trim();
+
+                            // Remove literal \n and \t characters
+                            cleanAnswer = cleanAnswer.replace(/\\n/g, ' ').replace(/\\t/g, ' ');
+
+                            // Remove any "```json" or "```" markers
+                            cleanAnswer = cleanAnswer.replace(/^```json\s*/, '').replace(/```\s*$/, '');
+
+                            // If the answer starts with a quote, assume it's a JSON string and remove outer quotes
+                            if (cleanAnswer.startsWith('"') && cleanAnswer.endsWith('"')) {
+                                cleanAnswer = cleanAnswer.slice(1, -1);
+                            }
+
+                            console.log(`Cleaned answer for ${uniqueId}:`, {
+                                original: result.answer,
+                                cleaned: cleanAnswer
+                            });
+
+                            const answerObj = JSON.parse(cleanAnswer);
+
+                            // Map the answer to YES/NO/PARTIAL based on the parsed response
+                            const mappedAnswer = answerObj.Answer?.toUpperCase() === 'YES' ? 'YES' :
+                                answerObj.Answer?.toUpperCase() === 'PARTIAL' ? 'PARTIAL' : 'NO';
+
+                            // Map the quality to one of the allowed values
+                            const mappedQuality = answerObj.Answer_Quality?.toUpperCase() === 'ADEQUATE' ? 'ADEQUATE' :
+                                answerObj.Answer_Quality?.toUpperCase() === 'INADEQUATE' ? 'INADEQUATE' : 'NEEDS_REVIEW';
+
                             return {
                                 id: uniqueId,
                                 controlId: result.controlId,
                                 designElementId: result.designElementId,
                                 status: result.status,
-                                quality: answerObj.Answer_Quality || 'NEEDS_REVIEW',
-                                answer: answerObj.Answer || 'NO',
+                                quality: mappedQuality,
+                                answer: mappedAnswer,
                                 question: result.question,
                                 source: answerObj.Answer_Source || '',
-                                summary: answerObj.Summary || '',
+                                summary: answerObj.Summary || cleanAnswer || '',
                                 reference: answerObj.Reference || '',
                                 evidence: []
                             };
                         } catch (error) {
                             console.error(`Error parsing result for ${uniqueId}:`, error);
+                            console.error('Raw answer:', result.answer);
+
+                            // Return a default object for failed parsing
                             return {
                                 id: uniqueId,
                                 controlId: result.controlId,
@@ -560,7 +602,7 @@ const FullVendorAnalysis: React.FC = () => {
                                 answer: 'NO',
                                 question: result.question,
                                 source: '',
-                                summary: '',
+                                summary: result.answer || 'Failed to parse response',
                                 reference: '',
                                 evidence: []
                             };
