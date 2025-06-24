@@ -1,11 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import styles from '../assessment.module.css';
-import { ButtonGroup, Button } from '@progress/kendo-react-buttons';
-// Using console.log for now as logger is not available
-const logger = {
-    info: console.log,
-    error: console.error
-};
 
 interface TableRow {
     Question: string;
@@ -32,77 +26,68 @@ interface ReportDisplayProps {
         reference: string;
     }>;
     onStartOver: () => void;
+    onDownloadExcel: () => void;
+    viewMode: 'table' | 'cards';
+    onToggleViewMode: () => void;
 }
 
-export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [], onStartOver }) => {
-    const [tableData, setTableData] = useState<TableRow[]>([]);
-    const [tableCols] = useState(['Question', 'Answer', 'Answer_Quality', 'Answer_Source', 'Summary', 'Reference']);
-    const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
-
-    useEffect(() => {
-        // Map the results directly to table data format
-        const rows = results.map(r => {
-            const row = {
-                Question: r.question || 'No question provided',
-                Answer: r.answer || 'No answer provided',
-                Answer_Quality: r.quality || 'NEEDS_REVIEW',
-                Answer_Source: r.source || r.controlId || 'Not specified',
-                Summary: r.summary || 'No summary available',
-                Reference: r.reference || `Domain_Id: ${r.controlId}`
-            };
-            console.log('Processing row:', row);
-            return row;
-        });
-
-        console.log('Final processed table data:', rows);
-        setTableData(rows);
-    }, [results]);
-
+export const ReportDisplay: React.FC<ReportDisplayProps> = ({
+    results = [],
+    onStartOver,
+    onDownloadExcel,
+    viewMode,
+    onToggleViewMode
+}) => {
     if (!results || results.length === 0) {
         return (
-            <div className={styles['results-container']}>
-                <h2>Assessment Report</h2>
-                <div className={styles['empty-state']}>
-                    <p>No assessment results available. Please upload evidence files and generate a report.</p>
+            <div className={styles.bottomSection}>
+                <div className={styles.reportContainer}>
+                    <div className={styles.reportHeader}>
+                        <h2>Generated Report</h2>
+                    </div>
+                    <div className={styles.emptyState}>
+                        <p>No assessment results available. Please upload evidence files and generate a report.</p>
+                    </div>
                 </div>
             </div>
         );
     }
 
     const getQualityClass = (quality: string): string => {
-        switch (quality?.toUpperCase()) {
-            case 'ADEQUATE':
-                return styles['quality-adequate'];
-            case 'INADEQUATE':
-                return styles['quality-inadequate'];
-            default:
-                return styles['quality-needs-review'];
-        }
+        const qualityMap = {
+            'ADEQUATE': styles.qualityAdequate,
+            'INADEQUATE': styles.qualityInadequate,
+            'NEEDS_REVIEW': styles.qualityNeedsReview
+        };
+        return qualityMap[quality as keyof typeof qualityMap] || styles.qualityNeedsReview;
     };
 
     const renderTableView = () => (
-        <div className={styles['table-container']}>
-            <table className={styles['assessment-table']}>
+        <div className={styles.tableContainer}>
+            <table className={styles.reportTable}>
                 <thead>
                     <tr>
-                        {tableCols.map((col, index) => (
-                            <th key={index} className={styles['table-header']}>
-                                {col.replace('_', ' ')}
-                            </th>
-                        ))}
+                        <th>Question</th>
+                        <th>Answer</th>
+                        <th>Quality</th>
+                        <th>Source</th>
+                        <th>Summary</th>
+                        <th>Reference</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {tableData.map((row, rowIndex) => (
-                        <tr key={rowIndex} className={styles['table-row']}>
-                            {tableCols.map((col, colIndex) => (
-                                <td
-                                    key={`${rowIndex}-${colIndex}`}
-                                    className={`${styles['table-cell']} ${col === 'Answer_Quality' ? getQualityClass(row[col as keyof TableRow]) : ''}`}
-                                >
-                                    {row[col as keyof TableRow] || 'N/A'}
-                                </td>
-                            ))}
+                    {results.map((item, index) => (
+                        <tr key={index}>
+                            <td>{item.question}</td>
+                            <td>{item.answer}</td>
+                            <td>
+                                <span className={`${styles.quality} ${getQualityClass(item.quality)}`}>
+                                    {item.quality}
+                                </span>
+                            </td>
+                            <td>{item.source}</td>
+                            <td>{item.summary}</td>
+                            <td>{item.reference}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -111,36 +96,39 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [], onSt
     );
 
     const renderCardView = () => (
-        <div className={styles['cards-container']}>
-            {tableData.map((row, index) => (
-                <div key={index} className={styles['result-card']}>
-                    <div className={styles['card-header']}>
-                        <h3>Question</h3>
-                        <p>{row.Question}</p>
-                    </div>
-                    <div className={styles['card-content']}>
-                        <div className={styles['content-row']}>
-                            <strong>Answer:</strong>
-                            <p>{row.Answer || 'N/A'}</p>
-                        </div>
-                        <div className={styles['content-row']}>
-                            <strong>Quality:</strong>
-                            <span className={getQualityClass(row.Answer_Quality)}>
-                                {row.Answer_Quality || 'N/A'}
-                            </span>
-                        </div>
-                        <div className={styles['content-row']}>
-                            <strong>Source:</strong>
-                            <p>{row.Answer_Source || 'N/A'}</p>
-                        </div>
-                        <div className={styles['content-row']}>
-                            <strong>Summary:</strong>
-                            <p>{row.Summary || 'N/A'}</p>
-                        </div>
-                        <div className={styles['content-row']}>
-                            <strong>Reference:</strong>
-                            <p>{row.Reference || 'N/A'}</p>
-                        </div>
+        <div className={styles.reportContent}>
+            {results.map((item, index) => (
+                <div key={index} className={styles.reportItem}>
+                    <h3 className={styles.prompt}>Q: {item.question}</h3>
+                    <div className={styles.responseTable}>
+                        <table>
+                            <tbody>
+                                <tr>
+                                    <td className={styles.label}>Answer:</td>
+                                    <td>{item.answer}</td>
+                                </tr>
+                                <tr>
+                                    <td className={styles.label}>Quality:</td>
+                                    <td>
+                                        <span className={`${styles.quality} ${getQualityClass(item.quality)}`}>
+                                            {item.quality}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td className={styles.label}>Source:</td>
+                                    <td>{item.source}</td>
+                                </tr>
+                                <tr>
+                                    <td className={styles.label}>Summary:</td>
+                                    <td>{item.summary}</td>
+                                </tr>
+                                <tr>
+                                    <td className={styles.label}>Reference:</td>
+                                    <td>{item.reference}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             ))}
@@ -148,31 +136,32 @@ export const ReportDisplay: React.FC<ReportDisplayProps> = ({ results = [], onSt
     );
 
     return (
-        <div className={styles['results-container']}>
-            <div className={styles['results-header']}>
-                <h2>Assessment Report</h2>
-                <div className={styles['view-controls']}>
-                    <ButtonGroup>
-                        <Button
-                            selected={viewMode === 'table'}
-                            onClick={() => setViewMode('table')}
+        <div className={styles.bottomSection}>
+            <div className={styles.reportContainer}>
+                <div className={styles.reportHeader}>
+                    <h2>Generated Report</h2>
+                    <div className={styles.reportActions}>
+                        <button
+                            onClick={onToggleViewMode}
+                            className={styles.viewModeButton}
                         >
-                            Table View
-                        </Button>
-                        <Button
-                            selected={viewMode === 'card'}
-                            onClick={() => setViewMode('card')}
+                            {viewMode === 'cards' ? 'Table View' : 'Card View'}
+                        </button>
+                        <button
+                            onClick={onDownloadExcel}
+                            className={styles.downloadButton}
                         >
-                            Card View
-                        </Button>
-                    </ButtonGroup>
+                            Download Excel
+                        </button>
+                        <button
+                            onClick={onStartOver}
+                            className={styles.startOverButton}
+                        >
+                            Start Over
+                        </button>
+                    </div>
                 </div>
-            </div>
-            <div className={styles['report-content']}>
                 {viewMode === 'table' ? renderTableView() : renderCardView()}
-            </div>
-            <div className={styles['report-actions']}>
-                <Button onClick={onStartOver}>Start Over</Button>
             </div>
         </div>
     );
