@@ -16,14 +16,22 @@ import styles from './assessment.module.css';
 import { ProgressBar } from '@progress/kendo-react-progressbars';
 import './App.css';
 import axios from "axios";
+import { LLMAnswerResponse } from './types/survey';
 
 // Enhanced ReportItem interface to match LLM results
-interface EnhancedReportItem extends ReportItem {
-    controlId?: string;  // This is Domain_Id
-    designElementId?: string;
-    status?: 'success' | 'error';
+interface EnhancedReportItem {
+    id: string;
+    controlId: string;  // This is Domain_Id
+    designElementId: string;
+    status: 'success' | 'error';
     processingError?: string;
     evidence?: string[];
+    quality: 'ADEQUATE' | 'INADEQUATE' | 'NEEDS_REVIEW';
+    answer: 'YES' | 'NO' | 'PARTIAL';
+    question: string;
+    source: string;
+    summary: string;
+    reference: string;
 }
 
 interface ProcessingProgress {
@@ -228,38 +236,60 @@ const FullVendorAnalysis: React.FC = () => {
             logger.info(`Parsed answer for ${element.id}:`, parsed);
             console.log(`Parsed JSON Object for ${element.id}:`, parsed);
 
-            return {
-                id: element.id,
+            // Extract the design element number from the ID (e.g., "BC001-sub-1" -> "1")
+            const designElementNumber = element.id.split('-').pop() || '';
+
+            // Create a unique identifier for this specific design element
+            const uniqueId = `${control.cid}-element-${designElementNumber}`;
+
+            // Map the answer to YES/NO/PARTIAL based on the parsed response
+            const mappedAnswer = parsed.Answer?.toUpperCase() === 'YES' ? 'YES' :
+                parsed.Answer?.toUpperCase() === 'PARTIAL' ? 'PARTIAL' : 'NO';
+
+            // Map the quality to one of the allowed values
+            const mappedQuality = parsed.Answer_Quality?.toUpperCase() === 'ADEQUATE' ? 'ADEQUATE' :
+                parsed.Answer_Quality?.toUpperCase() === 'INADEQUATE' ? 'INADEQUATE' : 'NEEDS_REVIEW';
+
+            // Create the report item with correct field mappings
+            const reportItem: EnhancedReportItem = {
+                id: uniqueId,
                 controlId: control.cid,
                 designElementId: element.id,
                 status: llmResult.status,
                 processingError: llmResult.error,
-                quality: parsed.Quality || parsed.Answer_Quality || (llmResult.status === 'success' ? 'ADEQUATE' : 'INADEQUATE'),
-                answer: parsed.Answer || cleanedAnswer || 'No answer provided',
+                quality: mappedQuality,
+                answer: mappedAnswer,
                 evidence: control.evidences.map((e: any) => e.name),
                 question: element.question,
-                source: parsed.Source || parsed.Answer_Source || control.cid,
+                source: parsed.Answer_Source || control.cid,
                 summary: parsed.Summary || cleanedAnswer || 'No summary available',
-                reference: parsed.Reference || `Domain_Id: ${control.cid}`
+                reference: parsed.Reference || `Domain_Id: ${control.cid} - Element ${designElementNumber}`
             };
+
+            console.log('Processed report item:', reportItem);
+            return reportItem;
+
         } catch (err) {
             console.error(`❌ Failed to parse answer for ${element.id}`, err);
             logger.error(`❌ Parsing error for ${element.id}`, { error: err, answer: llmResult.answer });
 
-            // Return a fallback object with meaningful defaults
+            // Extract the design element number for the error case too
+            const designElementNumber = element.id.split('-').pop() || '';
+            const uniqueId = `${control.cid}-element-${designElementNumber}`;
+
             return {
-                id: element.id,
+                id: uniqueId,
                 controlId: control.cid,
                 designElementId: element.id,
-                status: llmResult.status,
+                status: 'error',
                 processingError: `Failed to parse LLM response: ${err instanceof Error ? err.message : 'Unknown error'}`,
-                quality: 'NEEDS_REVIEW',
-                answer: cleanedAnswer || 'Unable to parse response',
+                quality: 'INADEQUATE',
+                answer: 'NO',
                 evidence: control.evidences.map((e: any) => e.name),
                 question: element.question,
                 source: control.cid,
                 summary: cleanedAnswer || 'Failed to parse LLM response',
-                reference: `Domain_Id: ${control.cid}`
+                reference: `Domain_Id: ${control.cid} - Element ${designElementNumber}`
             };
         }
     };
@@ -345,8 +375,8 @@ const FullVendorAnalysis: React.FC = () => {
                             question: 'No design elements found',
                             source: 'System',
                             summary: errorMsg,
-                            reference: 'N/A'
-                        });
+                            reference: `Domain_Id: ${control.cid}`
+                        } as EnhancedReportItem);
                         continue;
                     }
 
@@ -405,13 +435,12 @@ const FullVendorAnalysis: React.FC = () => {
                                 answer: 'NO',
                                 evidence: control.evidences.map(e => e.name),
                                 question: element.question,
-                                source: control.cid,  // Changed from controlName to cid
+                                source: control.cid,
                                 summary: errorMsg,
-                                reference: `Domain_Id: ${control.cid}`  // Changed from Control to Domain_Id
-                            });
+                                reference: `Domain_Id: ${control.cid}`
+                            } as EnhancedReportItem);
                         }
                     }
-
                 } catch (error) {
                     const errorMsg = `Failed to get design elements for ${control.cid}: ${error instanceof Error ? error.message : 'Unknown error'}`;
                     console.error(errorMsg);
@@ -425,10 +454,10 @@ const FullVendorAnalysis: React.FC = () => {
                         answer: 'NO',
                         evidence: control.evidences.map(e => e.name),
                         question: 'Failed to get design elements',
-                        source: control.cid,  // Changed from controlName to cid
+                        source: control.cid,
                         summary: errorMsg,
-                        reference: `Domain_Id: ${control.cid}`  // Changed from Control to Domain_Id
-                    });
+                        reference: `Domain_Id: ${control.cid}`
+                    } as EnhancedReportItem);
                 }
             }
 
@@ -486,31 +515,23 @@ const FullVendorAnalysis: React.FC = () => {
 
         const headers = "Question,Answer,Quality,Source,Summary,Reference\n";
         const rows = report.map(item => {
-            const question = item.question.replace(/"/g, '""');
-            const summary = item.summary.replace(/"/g, '""');
-            const source = item.source.replace(/"/g, '""');
-            const reference = item.reference.replace(/"/g, '""');
-
-            return `"${question}","${item.answer}","${item.quality}","${source}","${summary}","${reference}"`;
-        }).join("\n");
+            const row = [
+                item.question,
+                item.answer,
+                item.quality,
+                item.source || 'N/A',
+                item.summary || 'N/A',
+                item.reference || 'N/A'
+            ].map(cell => `"${cell.replace(/"/g, '""')}"`);
+            return row.join(',');
+        }).join('\n');
 
         const csvContent = headers + rows;
-
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `risk-assessment-report-${timestamp}.csv`);
-        link.style.visibility = 'hidden';
-
-        document.body.appendChild(link);
+        link.href = URL.createObjectURL(blob);
+        link.download = 'assessment_report.csv';
         link.click();
-        document.body.removeChild(link);
-
-        console.log('Final processed table data:', rows);
-        logger.info('Final table data processed', { rowCount: rows.length, rows });
     };
 
     const startOver = () => {
@@ -646,16 +667,12 @@ const FullVendorAnalysis: React.FC = () => {
 
                 {/* Report Display */}
                 {showReport && (
-                    <ReportDisplay
-                        results={report.map(item => ({
-                            controlId: item.controlId || '',
-                            designElementId: item.designElementId || '',
-                            question: item.question,
-                            answer: item.answer || '',
-                            status: item.status || 'success'
-                        }))}
-                        onStartOver={startOver}
-                    />
+                    <div className="mt-4">
+                        <ReportDisplay
+                            results={report}
+                            onStartOver={startOver}
+                        />
+                    </div>
                 )}
 
                 {/* Processing Progress */}
