@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { generateMockReport, ReportItem, wellsFargoTheme } from "./utils/generate_report";
 import { processZipFile } from "./services/zipFileProcessor";
-import { processControlsWithEvidence, GetLLMEvidence, submitPromptForControl, type ApiResponse } from "./services/evidenceService";
+import { processControlsWithEvidence, GetLLMEvidence, submitPromptForControl, getLLMEvidenceBatchParallel, type ApiResponse } from "./services/evidenceService";
 import { getDesignElementsByCID } from "./services/promptService";
 import { Upload } from "@progress/kendo-react-upload";
 import { Button } from "@progress/kendo-react-buttons";
@@ -11,6 +11,7 @@ import { Dialog } from "@progress/kendo-react-dialogs";
 import { ZipContentsDisplay } from "./components/ZipContentsDisplay";
 import { ReportDisplay } from "./components/ReportDisplay";
 import { ProgressDisplay } from "./components/ProgressDisplay";
+import { TabStrip, TabStripTab } from "@progress/kendo-react-layout";
 import "@progress/kendo-theme-default/dist/all.css";
 import styles from './assessment.module.css';
 import { ProgressBar } from '@progress/kendo-react-progressbars';
@@ -84,6 +85,9 @@ const logger = {
     error: console.error
 };
 
+// Add new type for processing mode
+type ProcessingMode = 'sequential' | 'parallel';
+
 const FullVendorAnalysis: React.FC = () => {
     const excelExportRef = useRef<ExcelExport | null>(null);
 
@@ -99,6 +103,8 @@ const FullVendorAnalysis: React.FC = () => {
     const [isViewingContents, setIsViewingContents] = useState(false);
     const [currentZipFile, setCurrentZipFile] = useState<File | null>(null);
     const [controlResults, setControlResults] = useState<Record<string, ControlResult>>({});
+    const [processingMode, setProcessingMode] = useState<ProcessingMode>('sequential');
+    const [selectedTab, setSelectedTab] = useState<number>(0);
 
     const handleUploadSuccess = (event: any) => {
         const files = event.affectedFiles || [];
@@ -476,37 +482,136 @@ const FullVendorAnalysis: React.FC = () => {
         }
     };
 
+    // Add new function for batch parallel processing
+    const processDesignElementsParallel = async (zipFile: File): Promise<EnhancedReportItem[]> => {
+        try {
+            setLoading(true);
+            setError(null);
+            setProcessingProgress({
+                current: 0,
+                total: 0,
+                currentControl: '',
+                phase: 'zip_processing'
+            });
+
+            const zipResult = await processZipFile(zipFile);
+            console.log('ZIP processing complete:', zipResult);
+
+            if (!zipResult.controls || zipResult.controls.length === 0) {
+                throw new Error('No controls found in ZIP file');
+            }
+
+            // Prepare control prompts for batch processing
+            const controlPrompts = await Promise.all(
+                zipResult.controls.map(async (control) => {
+                    const [, designElements] = await getDesignElementsByCID(control.cid);
+                    return {
+                        controlId: control.cid,
+                        prompts: designElements.map(element => ({
+                            id: element.id,
+                            prompt: element.prompt,
+                            question: element.question
+                        })),
+                        files: control.evidences.map(e =>
+                            new File([atob(e.base64)], e.name, { type: e.type })
+                        )
+                    };
+                })
+            );
+
+            setProcessingProgress({
+                current: 0,
+                total: controlPrompts.length,
+                currentControl: 'Processing all controls in parallel',
+                phase: 'llm_processing'
+            });
+
+            // Process all controls in parallel
+            const results = await getLLMEvidenceBatchParallel(controlPrompts);
+
+            // Convert results to EnhancedReportItem[]
+            const enhancedResults: EnhancedReportItem[] = Object.entries(results).flatMap(
+                ([controlId, controlResults]) =>
+                    controlResults.map(result => {
+                        const designElementNumber = result.designElementId.split('-').pop() || '';
+                        const uniqueId = `${controlId}-element-${designElementNumber}`;
+
+                        try {
+                            const answerObj = JSON.parse(result.answer || '{}');
+                            return {
+                                id: uniqueId,
+                                controlId: result.controlId,
+                                designElementId: result.designElementId,
+                                status: result.status,
+                                quality: answerObj.Answer_Quality || 'NEEDS_REVIEW',
+                                answer: answerObj.Answer || 'NO',
+                                question: result.question,
+                                source: answerObj.Answer_Source || '',
+                                summary: answerObj.Summary || '',
+                                reference: answerObj.Reference || '',
+                                evidence: []
+                            };
+                        } catch (error) {
+                            console.error(`Error parsing result for ${uniqueId}:`, error);
+                            return {
+                                id: uniqueId,
+                                controlId: result.controlId,
+                                designElementId: result.designElementId,
+                                status: 'error',
+                                quality: 'NEEDS_REVIEW',
+                                answer: 'NO',
+                                question: result.question,
+                                source: '',
+                                summary: '',
+                                reference: '',
+                                evidence: []
+                            };
+                        }
+                    })
+            );
+
+            setProcessingProgress({
+                current: controlPrompts.length,
+                total: controlPrompts.length,
+                currentControl: 'Complete',
+                phase: 'complete'
+            });
+
+            return enhancedResults;
+        } catch (error) {
+            console.error('Error in parallel processing:', error);
+            throw error;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Modify handleGenerateReport to use the selected processing mode
     const handleGenerateReport = async () => {
-        if (!zipUploaded || !currentZipFile) {
-            setError("Please upload a zip file first.");
+        if (!currentZipFile) {
+            setError('Please upload a ZIP file first');
             return;
         }
 
-        setError(null);
-        setReport([]);
-        setShowReport(false);
-        setLoading(true);
-        setProcessingProgress(null);
-
         try {
-            console.log('Starting enhanced report generation with LLM integration...');
+            setLoading(true);
+            setError(null);
+            setReport([]);
 
-            // Call the enhanced processDesignElements function
-            const enhancedReport = await processDesignElements(currentZipFile);
+            let results: EnhancedReportItem[];
+            if (processingMode === 'sequential') {
+                results = await processDesignElements(currentZipFile);
+            } else {
+                results = await processDesignElementsParallel(currentZipFile);
+            }
 
-            setReport(enhancedReport);
+            setReport(results);
             setShowReport(true);
-
-            console.log(`Report generation completed. Generated ${enhancedReport.length} report items.`);
-
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : "Failed to generate report.";
-            console.error('Report generation failed:', err);
-            setError(errorMessage);
+        } catch (error) {
+            console.error('Error generating report:', error);
+            setError(error instanceof Error ? error.message : 'An error occurred');
         } finally {
             setLoading(false);
-            // Clear progress after a short delay
-            setTimeout(() => setProcessingProgress(null), 3000);
         }
     };
 
@@ -588,124 +693,125 @@ const FullVendorAnalysis: React.FC = () => {
     };
 
     return (
-        <div className="app-container">
-            <div className="text-center">
-                <h1 className={styles.appTitle}>Third Party Risk Evaluation Service</h1>
+        <div className={styles.container}>
+            <h1 className={styles.title}>Vendor Assessment Analysis</h1>
 
-                {/* ZIP File Upload Section */}
-                <div className="row justify-content-center">
-                    <div className="col-md-6">
-                        <div className={styles.card}>
-                            <div className={styles.cardBody}>
-                                <h5 className={styles.cardTitle}>Upload ZIP File</h5>
-                                <div className={styles.uploadZone}>
-                                    <Upload
-                                        restrictions={{
-                                            allowedExtensions: ['.zip'],
-                                            maxFileSize: 100000000 // 100MB
-                                        }}
-                                        batch={false}
-                                        multiple={false}
-                                        onAdd={handleUploadSuccess}
-                                        saveUrl={''}
-                                        autoUpload={false}
-                                        withCredentials={false}
-                                        showActionButtons={false}
-                                    />
-                                </div>
-                                <small className="text-muted d-block mt-2">
-                                    Upload a zip file with domain folders. Each folder must contain at least one PDF file and can include image files (JPG, PNG, GIF)
-                                </small>
-                            </div>
-                        </div>
+            <TabStrip
+                selected={selectedTab}
+                onSelect={(e) => {
+                    setSelectedTab(e.selected);
+                    setProcessingMode(e.selected === 0 ? 'sequential' : 'parallel');
+                }}
+            >
+                <TabStripTab title="Sequential Processing">
+                    <div className={styles.description}>
+                        Process controls one at a time in sequence
                     </div>
-                </div>
-
-                {error && (
-                    <div className={styles.alertDanger} role="alert">
-                        {error}
+                </TabStripTab>
+                <TabStripTab title="Parallel Processing">
+                    <div className={styles.description}>
+                        Process all controls in parallel for faster results
                     </div>
-                )}
+                </TabStripTab>
+            </TabStrip>
 
-                {/* Action Buttons */}
-                <div className="mt-4 d-flex justify-content-center gap-3">
-                    <Button
-                        disabled={!zipUploaded || isViewingContents}
-                        onClick={handleViewZipContents}
-                        className={isViewingContents ? styles.secondaryButton : styles.primaryButton}
-                    >
-                        {isViewingContents ? (
-                            <>
-                                <span className={styles.loadingSpinner}></span>
-                                <span className="ms-2">Viewing ZIP contents...</span>
-                            </>
-                        ) : (
-                            "View ZIP Contents"
-                        )}
-                    </Button>
-
-                    <Button
-                        onClick={handleGenerateReport}
-                        disabled={!zipUploaded || loading || !showZipContents}
-                        className={loading ? styles.secondaryButton : styles.primaryButton}
-                    >
-                        {loading ? (
-                            <>
-                                <span className={styles.loadingSpinner}></span>
-                                <span className="ms-2">Analyzing evidence files...</span>
-                            </>
-                        ) : (
-                            "Process Evidence Files"
-                        )}
-                    </Button>
-                </div>
-
-                {/* ZIP Contents Display */}
-                {showZipContents && zipContents.folders.length > 0 && !loading && !showReport && (
-                    <ZipContentsDisplay folders={zipContents.folders} />
-                )}
-
-                {/* Report Display */}
-                {showReport && (
-                    <div className="mt-4">
-                        <ReportDisplay
-                            results={report}
-                            onStartOver={startOver}
-                        />
-                    </div>
-                )}
-
-                {/* Processing Progress */}
-                {processingProgress && (
-                    <div className={styles.progressContainer}>
-                        <div className={styles.card}>
-                            <div className={styles.cardBody}>
-                                <div className="mb-3">
-                                    <div className="d-flex justify-content-between align-items-center mb-2">
-                                        <span className="fw-bold">
-                                            {processingProgress.phase === 'zip_processing' && 'Extracting ZIP contents...'}
-                                            {processingProgress.phase === 'llm_processing' && 'AI Analysis in Progress...'}
-                                            {processingProgress.phase === 'complete' && 'Processing Complete'}
-                                        </span>
-                                        <span className="text-muted">
-                                            {processingProgress.current}/{processingProgress.total}
-                                        </span>
-                                    </div>
-                                    <div className={styles.progressBar}>
-                                        <div
-                                            className={styles.progressFill}
-                                            style={{
-                                                width: `${(processingProgress.current / processingProgress.total) * 100}%`
-                                            }}
-                                        ></div>
-                                    </div>
-                                </div>
-                                <small className="text-muted">{processingProgress.currentControl}</small>
-                            </div>
-                        </div>
-                    </div>
-                )}
+            <div className={styles.uploadSection}>
+                <Upload
+                    restrictions={{
+                        allowedExtensions: ['.zip'],
+                        maxFileSize: 100000000 // 100MB
+                    }}
+                    onAdd={handleUploadSuccess}
+                    saveUrl={''}
+                    autoUpload={false}
+                    multiple={false}
+                />
             </div>
+
+            {error && (
+                <div className={styles.alertDanger} role="alert">
+                    {error}
+                </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="mt-4 d-flex justify-content-center gap-3">
+                <Button
+                    disabled={!zipUploaded || isViewingContents}
+                    onClick={handleViewZipContents}
+                    className={isViewingContents ? styles.secondaryButton : styles.primaryButton}
+                >
+                    {isViewingContents ? (
+                        <>
+                            <span className={styles.loadingSpinner}></span>
+                            <span className="ms-2">Viewing ZIP contents...</span>
+                        </>
+                    ) : (
+                        "View ZIP Contents"
+                    )}
+                </Button>
+
+                <Button
+                    onClick={handleGenerateReport}
+                    disabled={!zipUploaded || loading || !showZipContents}
+                    className={loading ? styles.secondaryButton : styles.primaryButton}
+                >
+                    {loading ? (
+                        <>
+                            <span className={styles.loadingSpinner}></span>
+                            <span className="ms-2">Analyzing evidence files...</span>
+                        </>
+                    ) : (
+                        "Process Evidence Files"
+                    )}
+                </Button>
+            </div>
+
+            {/* ZIP Contents Display */}
+            {showZipContents && zipContents.folders.length > 0 && !loading && !showReport && (
+                <ZipContentsDisplay folders={zipContents.folders} />
+            )}
+
+            {/* Report Display */}
+            {showReport && (
+                <div className="mt-4">
+                    <ReportDisplay
+                        results={report}
+                        onStartOver={startOver}
+                    />
+                </div>
+            )}
+
+            {/* Processing Progress */}
+            {processingProgress && (
+                <div className={styles.progressContainer}>
+                    <div className={styles.card}>
+                        <div className={styles.cardBody}>
+                            <div className="mb-3">
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                    <span className="fw-bold">
+                                        {processingProgress.phase === 'zip_processing' && 'Extracting ZIP contents...'}
+                                        {processingProgress.phase === 'llm_processing' && 'AI Analysis in Progress...'}
+                                        {processingProgress.phase === 'complete' && 'Processing Complete'}
+                                    </span>
+                                    <span className="text-muted">
+                                        {processingProgress.current}/{processingProgress.total}
+                                    </span>
+                                </div>
+                                <div className={styles.progressBar}>
+                                    <div
+                                        className={styles.progressFill}
+                                        style={{
+                                            width: `${(processingProgress.current / processingProgress.total) * 100}%`
+                                        }}
+                                    ></div>
+                                </div>
+                            </div>
+                            <small className="text-muted">{processingProgress.currentControl}</small>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
