@@ -70,6 +70,12 @@ interface ControlResult {
     results: ApiResponse[];
 }
 
+// Using console.log for now as logger is not available
+const logger = {
+    info: console.log,
+    error: console.error
+};
+
 const FullVendorAnalysis: React.FC = () => {
     const excelExportRef = useRef<ExcelExport | null>(null);
 
@@ -200,6 +206,64 @@ const FullVendorAnalysis: React.FC = () => {
         }
     };
 
+    const processLLMResponse = (llmResult: any, control: any, element: any): EnhancedReportItem => {
+        console.log(`Raw answer for element ${element.id} (CID: ${control.cid}):`, llmResult.answer);
+        logger.info(`Raw answer string [${element.id}]: ${llmResult.answer}`);
+
+        let cleanedAnswer = llmResult.answer?.trim() || '';
+        console.log(`Initial trimmed answer [${element.id}]:`, cleanedAnswer);
+
+        if (cleanedAnswer.startsWith('"') || cleanedAnswer.startsWith('```json')) {
+            cleanedAnswer = cleanedAnswer
+                .replace(/^"(?:json)?\s*/i, '')
+                .replace(/\s*"```$/, '')
+                .replace(/^```(?:json)?\s*/i, '')
+                .replace(/\s*```$/, '');
+            console.log(`Cleaned answer [${element.id}]:`, cleanedAnswer);
+            logger.info(`Cleaned answer for ${element.id}:`, { original: llmResult.answer, cleaned: cleanedAnswer });
+        }
+
+        try {
+            const parsed = JSON.parse(cleanedAnswer);
+            logger.info(`Parsed answer for ${element.id}:`, parsed);
+            console.log(`Parsed JSON Object for ${element.id}:`, parsed);
+
+            return {
+                id: element.id,
+                controlId: control.cid,
+                designElementId: element.id,
+                status: llmResult.status,
+                processingError: llmResult.error,
+                quality: parsed.Quality || parsed.Answer_Quality || (llmResult.status === 'success' ? 'ADEQUATE' : 'INADEQUATE'),
+                answer: parsed.Answer || cleanedAnswer || 'No answer provided',
+                evidence: control.evidences.map((e: any) => e.name),
+                question: element.question,
+                source: parsed.Source || parsed.Answer_Source || control.cid,
+                summary: parsed.Summary || cleanedAnswer || 'No summary available',
+                reference: parsed.Reference || `Domain_Id: ${control.cid}`
+            };
+        } catch (err) {
+            console.error(`❌ Failed to parse answer for ${element.id}`, err);
+            logger.error(`❌ Parsing error for ${element.id}`, { error: err, answer: llmResult.answer });
+
+            // Return a fallback object with meaningful defaults
+            return {
+                id: element.id,
+                controlId: control.cid,
+                designElementId: element.id,
+                status: llmResult.status,
+                processingError: `Failed to parse LLM response: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                quality: 'NEEDS_REVIEW',
+                answer: cleanedAnswer || 'Unable to parse response',
+                evidence: control.evidences.map((e: any) => e.name),
+                question: element.question,
+                source: control.cid,
+                summary: cleanedAnswer || 'Failed to parse LLM response',
+                reference: `Domain_Id: ${control.cid}`
+            };
+        }
+    };
+
     /**
      * Enhanced processDesignElements function with sequential LLM processing
      * Processes each control and its design elements one by one
@@ -321,21 +385,9 @@ const FullVendorAnalysis: React.FC = () => {
                                 error: llmResult.error
                             });
 
-                            // Add to processed reports
-                            processedReports.push({
-                                id: element.id,
-                                controlId: control.cid,
-                                designElementId: element.id,
-                                status: llmResult.status,
-                                processingError: llmResult.error,
-                                quality: llmResult.status === 'success' ? 'ADEQUATE' : 'INADEQUATE',
-                                answer: llmResult.status === 'success' ? 'YES' : 'NO',
-                                evidence: control.evidences.map(e => e.name),
-                                question: element.question,
-                                source: control.cid,  // Changed from controlName to cid
-                                summary: llmResult.answer || llmResult.error || 'No response received',
-                                reference: `Domain_Id: ${control.cid}`  // Changed from Control to Domain_Id
-                            });
+                            // Process the LLM response
+                            const processedReport = processLLMResponse(llmResult, control, element);
+                            processedReports.push(processedReport);
 
                             // Add small delay to prevent overwhelming the API
                             await new Promise(resolve => setTimeout(resolve, 500));
@@ -456,6 +508,9 @@ const FullVendorAnalysis: React.FC = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+
+        console.log('Final processed table data:', rows);
+        logger.info('Final table data processed', { rowCount: rows.length, rows });
     };
 
     const startOver = () => {
