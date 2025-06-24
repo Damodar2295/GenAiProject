@@ -256,8 +256,39 @@ const FullVendorAnalysis: React.FC = () => {
             const mappedQuality = parsed.Answer_Quality?.toUpperCase() === 'ADEQUATE' ? 'ADEQUATE' :
                 parsed.Answer_Quality?.toUpperCase() === 'INADEQUATE' ? 'INADEQUATE' : 'NEEDS_REVIEW';
 
-            // Extract design element from the prompt
-            const designElement = element.prompt.split('design element:').pop()?.trim() || element.question;
+            // Extract design element from the prompt or answer
+            let designElement = 'No design element found';
+
+            // First try to get from prompt if available
+            if (element.prompt) {
+                const promptParts = element.prompt.split('design element:');
+                if (promptParts.length > 1) {
+                    designElement = promptParts[1].trim();
+                }
+            }
+
+            // If not found in prompt, try to extract from the answer
+            if (designElement === 'No design element found' && parsed.Question) {
+                // Extract the design element from the question if possible
+                const questionParts = parsed.Question.split('design element:');
+                if (questionParts.length > 1) {
+                    designElement = questionParts[1].trim();
+                } else {
+                    // If no design element marker, use the full question
+                    designElement = parsed.Question;
+                }
+            }
+
+            // If still not found, use the question from the element
+            if (designElement === 'No design element found' && element.question) {
+                designElement = element.question;
+            }
+
+            console.log('Extracted design element:', {
+                fromPrompt: element.prompt,
+                fromAnswer: parsed.Question,
+                finalElement: designElement
+            });
 
             // Create the report item with correct field mappings
             const reportItem: EnhancedReportItem = {
@@ -269,7 +300,7 @@ const FullVendorAnalysis: React.FC = () => {
                 quality: mappedQuality,
                 answer: mappedAnswer,
                 evidence: control.evidences.map((e: any) => e.name),
-                question: designElement,  // Use the extracted design element as the question
+                question: designElement,
                 source: parsed.Answer_Source || control.cid,
                 summary: parsed.Summary || cleanedAnswer || 'No summary available',
                 reference: parsed.Reference || `Domain_Id: ${control.cid} - Element ${designElementNumber}`
@@ -285,7 +316,9 @@ const FullVendorAnalysis: React.FC = () => {
             // Extract the design element number for the error case too
             const designElementNumber = element.id.split('-').pop() || '';
             const uniqueId = `${control.cid}-element-${designElementNumber}`;
-            const designElement = element.prompt.split('design element:').pop()?.trim() || 'No design element found';
+
+            // Get question from element or use default
+            const designElement = element.question || 'No question available';
 
             return {
                 id: uniqueId,
@@ -296,7 +329,7 @@ const FullVendorAnalysis: React.FC = () => {
                 quality: 'INADEQUATE',
                 answer: 'NO',
                 evidence: control.evidences.map((e: any) => e.name),
-                question: designElement,  // Use the extracted design element here too
+                question: designElement,
                 source: control.cid,
                 summary: cleanedAnswer || 'Failed to parse LLM response',
                 reference: `Domain_Id: ${control.cid} - Element ${designElementNumber}`
@@ -579,8 +612,39 @@ const FullVendorAnalysis: React.FC = () => {
                             const mappedQuality = answerObj.Answer_Quality?.toUpperCase() === 'ADEQUATE' ? 'ADEQUATE' :
                                 answerObj.Answer_Quality?.toUpperCase() === 'INADEQUATE' ? 'INADEQUATE' : 'NEEDS_REVIEW';
 
-                            // Extract design element from the prompt
-                            const designElement = result.prompt.split('design element:').pop()?.trim() || result.question;
+                            // Extract design element from the prompt or answer
+                            let designElement = 'No design element found';
+
+                            // First try to get from prompt if available
+                            if (result.prompt) {
+                                const promptParts = result.prompt.split('design element:');
+                                if (promptParts.length > 1) {
+                                    designElement = promptParts[1].trim();
+                                }
+                            }
+
+                            // If not found in prompt, try to extract from the answer
+                            if (designElement === 'No design element found' && answerObj.Question) {
+                                // Extract the design element from the question if possible
+                                const questionParts = answerObj.Question.split('design element:');
+                                if (questionParts.length > 1) {
+                                    designElement = questionParts[1].trim();
+                                } else {
+                                    // If no design element marker, use the full question
+                                    designElement = answerObj.Question;
+                                }
+                            }
+
+                            // If still not found, use the question from the result
+                            if (designElement === 'No design element found' && result.question) {
+                                designElement = result.question;
+                            }
+
+                            console.log('Extracted design element:', {
+                                fromPrompt: result.prompt,
+                                fromAnswer: answerObj.Question,
+                                finalElement: designElement
+                            });
 
                             return {
                                 id: uniqueId,
@@ -589,7 +653,7 @@ const FullVendorAnalysis: React.FC = () => {
                                 status: result.status,
                                 quality: mappedQuality,
                                 answer: mappedAnswer,
-                                question: designElement,  // Use the extracted design element as the question
+                                question: designElement,
                                 source: answerObj.Answer_Source || '',
                                 summary: answerObj.Summary || cleanAnswer || '',
                                 reference: answerObj.Reference || '',
@@ -599,8 +663,9 @@ const FullVendorAnalysis: React.FC = () => {
                             console.error(`Error parsing result for ${uniqueId}:`, error);
                             console.error('Raw answer:', result.answer);
 
-                            // Return a default object for failed parsing
-                            const designElement = result.prompt.split('design element:').pop()?.trim() || 'No design element found';
+                            // Get question from result or use default
+                            const designElement = result.question || 'No question available';
+
                             return {
                                 id: uniqueId,
                                 controlId: result.controlId,
@@ -608,7 +673,7 @@ const FullVendorAnalysis: React.FC = () => {
                                 status: 'error',
                                 quality: 'NEEDS_REVIEW',
                                 answer: 'NO',
-                                question: designElement,  // Use the extracted design element here too
+                                question: designElement,
                                 source: '',
                                 summary: result.answer || 'Failed to parse response',
                                 reference: '',
